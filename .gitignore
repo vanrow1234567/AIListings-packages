@@ -1,0 +1,11 @@
+# Dependencies / build output (none for this static site, but safe defaults)
+node_modules/
+.vercel
+.DS_Store
+Thumbs.db
+
+# Local tooling
+.claude/
+
+# Windows shortcut to the brand assets (kept out of the repo)
+Logo - Shortcut.lnk

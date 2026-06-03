@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Listings — Review Your Programme &amp; Agreement</title>
+
+  <!-- Drop your favicon next to this file as "favicon.png" (or .ico) -->
+  <link rel="icon" type="image/png" href="favicon.png" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --brand-cyan: #16b6e6;
+      --brand-cyan-dark: #0a9fcc;
+      --brand-cyan-light: #e8f8fd;
+      --violet: #7c6cff;
+      --ink: #0d1b2a;
+      --ink-soft: #51607a;
+      --line: #e6ebf2;
+      --bg: #f4f7fb;
+      --card: #ffffff;
+      --shadow-sm: 0 4px 14px rgba(13, 27, 42, 0.05);
+      --shadow: 0 30px 70px rgba(13, 27, 42, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', Arial, sans-serif;
+      background:
+        radial-gradient(1200px 560px at 88% -8%, rgba(22,182,230,0.10), transparent 60%),
+        radial-gradient(1000px 560px at -8% 8%, rgba(124,108,255,0.08), transparent 55%),
+        var(--bg);
+      margin: 0; color: var(--ink); min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
+    }
+    h1, h2, h3, h4, .logo-text, .section-title, .summary-value, .step-title {
+      font-family: 'Poppins', Arial, sans-serif;
+    }
+
+    /* ---------- Top nav ---------- */
+    .topbar {
+      background: rgba(255,255,255,0.82); backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20;
+    }
+    .nav { max-width: 1180px; margin: auto; display: flex; align-items: center; justify-content: space-between; padding: 16px 28px; }
+    .logo { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+    /* Replace with your logo image: <img src="logo.png" alt="AI Listings" class="logo-img" /> */
+    .logo-img { height: 38px; width: auto; display: block; }
+    .logo-mark { width: 38px; height: 38px; display: grid; place-items: center; }
+    .logo-text { font-weight: 700; font-size: 22px; letter-spacing: -0.5px; color: var(--ink); }
+    .logo-text b { color: var(--brand-cyan); font-weight: 800; }
+    .nav-secure { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--ink-soft); }
+    .nav-secure svg { color: var(--brand-cyan-dark); }
+
+    /* ---------- Layout ---------- */
+    .wrap { max-width: 920px; margin: 0 auto; padding: 56px 28px 90px; }
+
+    .back-link {
+      display: inline-flex; align-items: center; gap: 6px; text-decoration: none;
+      color: var(--ink-soft); font-size: 14px; font-weight: 500; margin-bottom: 26px;
+      transition: color .15s ease;
+    }
+    .back-link:hover { color: var(--brand-cyan-dark); }
+
+    /* ---------- Progress steps (journey) ---------- */
+    .journey {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      margin-bottom: 40px; flex-wrap: wrap;
+    }
+    .journey .j-step {
+      font-size: 12.5px; font-weight: 600; color: var(--ink-soft);
+      padding: 7px 14px; border-radius: 999px; background: #fff; border: 1px solid var(--line);
+    }
+    .journey .j-step.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+    .journey .j-sep { color: #c2cdda; font-size: 13px; }
+
+    .head { text-align: center; margin-bottom: 14px; }
+    .eyebrow {
+      display: inline-block; font-size: 13px; font-weight: 600; letter-spacing: 1.8px;
+      text-transform: uppercase; color: var(--brand-cyan-dark); background: var(--brand-cyan-light);
+      padding: 8px 16px; border-radius: 999px; margin-bottom: 20px;
+    }
+    h1 { font-size: 44px; font-weight: 700; margin: 0 0 16px; letter-spacing: -1.3px; line-height: 1.1; }
+    .head .subtext { color: var(--ink-soft); font-size: 18px; max-width: 600px; margin: 0 auto; line-height: 1.6; }
+
+    .section-title { font-size: 26px; font-weight: 700; letter-spacing: -0.6px; margin: 0 0 20px; }
+    .section-block { margin-top: 56px; }
+
+    /* ---------- Package summary card ---------- */
+    .summary-card {
+      margin-top: 44px; background: var(--card); border: 1px solid var(--line);
+      border-radius: 24px; box-shadow: var(--shadow); overflow: hidden;
+    }
+    .summary-banner {
+      background: linear-gradient(120deg, #0d1b2a 0%, #123047 60%, #0a9fcc 130%);
+      color: #fff; padding: 30px 38px; display: flex; align-items: center;
+      justify-content: space-between; gap: 20px; flex-wrap: wrap;
+    }
+    .summary-banner .sb-label { font-size: 12px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(255,255,255,0.7); margin-bottom: 6px; }
+    .summary-banner .sb-plan { font-family: 'Poppins', sans-serif; font-size: 30px; font-weight: 700; letter-spacing: -0.5px; }
+    .summary-banner .sb-badge {
+      background: rgba(255,255,255,0.14); border: 1px solid rgba(255,255,255,0.25);
+      color: #fff; padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 600;
+    }
+    .summary-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px;
+      background: var(--line);
+    }
+    .summary-item { background: var(--card); padding: 24px 30px; }
+    .summary-item .summary-label {
+      font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+      color: var(--ink-soft); margin-bottom: 8px;
+    }
+    .summary-value { font-size: 22px; font-weight: 700; color: var(--ink); }
+    .summary-value .vat { font-size: 13px; font-weight: 500; color: var(--ink-soft); font-family: 'Inter', sans-serif; }
+    .summary-item.highlight { background: linear-gradient(135deg, #eef9fd 0%, #eef0ff 100%); }
+    .summary-item.highlight .summary-value { color: var(--brand-cyan-dark); }
+    .summary-fineprint { padding: 16px 30px; font-size: 13px; color: var(--ink-soft); background: #fbfcfe; border-top: 1px solid var(--line); }
+
+    /* ---------- What happens next (timeline) ---------- */
+    .timeline { position: relative; margin-top: 8px; padding-left: 8px; }
+    .timeline::before {
+      content: ""; position: absolute; left: 25px; top: 14px; bottom: 14px; width: 2px;
+      background: linear-gradient(180deg, var(--brand-cyan), var(--violet));
+    }
+    .t-step { position: relative; display: flex; gap: 22px; padding: 14px 0; align-items: flex-start; }
+    .t-node {
+      flex-shrink: 0; width: 36px; height: 36px; border-radius: 50%;
+      background: #fff; border: 2px solid var(--brand-cyan); color: var(--brand-cyan-dark);
+      display: grid; place-items: center; font-family: 'Poppins', sans-serif; font-weight: 700;
+      font-size: 15px; z-index: 1; box-shadow: 0 0 0 5px var(--bg);
+    }
+    .t-body { padding-top: 5px; }
+    .step-title { font-size: 17px; font-weight: 600; color: var(--ink); margin: 0 0 3px; }
+    .t-body p { margin: 0; font-size: 14.5px; color: var(--ink-soft); line-height: 1.5; }
+
+    /* ---------- Commercial terms cards ---------- */
+    .terms-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+    .term-card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 18px;
+      padding: 28px; box-shadow: var(--shadow-sm); position: relative;
+    }
+    .term-card .term-icon {
+      width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+      background: var(--brand-cyan-light); color: var(--brand-cyan-dark); margin-bottom: 16px;
+    }
+    .term-card h3 { font-size: 18px; font-weight: 700; margin: 0 0 12px; letter-spacing: -0.3px; }
+    .term-card p { font-size: 15px; color: var(--ink-soft); line-height: 1.6; margin: 0 0 10px; }
+    .term-card p:last-child { margin-bottom: 0; }
+    .term-card ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 9px; }
+    .term-card ul li { position: relative; padding-left: 26px; font-size: 14.5px; color: var(--ink-soft); line-height: 1.5; }
+    .term-card ul li::before {
+      content: ""; position: absolute; left: 0; top: 2px; width: 16px; height: 16px; border-radius: 50%;
+      background: var(--brand-cyan-light);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%230a9fcc' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: center;
+    }
+    .term-card.full { grid-column: 1 / -1; }
+    .term-note { font-size: 13.5px; color: var(--ink-soft); font-style: italic; margin-top: 12px; }
+
+    /* ---------- Full terms accordion ---------- */
+    .accordion {
+      margin-top: 24px; background: var(--card); border: 1px solid var(--line);
+      border-radius: 16px; box-shadow: var(--shadow-sm); overflow: hidden;
+    }
+    .accordion summary {
+      list-style: none; cursor: pointer; padding: 22px 28px; display: flex;
+      align-items: center; justify-content: space-between; gap: 14px;
+      font-family: 'Poppins', sans-serif; font-size: 17px; font-weight: 600; color: var(--ink);
+    }
+    .accordion summary::-webkit-details-marker { display: none; }
+    .accordion summary .chev { transition: transform .2s ease; color: var(--brand-cyan-dark); }
+    .accordion[open] summary .chev { transform: rotate(180deg); }
+    .accordion summary:hover { color: var(--brand-cyan-dark); }
+    .accordion .acc-body {
+      padding: 4px 28px 28px; border-top: 1px solid var(--line); margin-top: -2px;
+    }
+    .acc-body { max-height: 520px; overflow-y: auto; }
+    .acc-body h4 { font-size: 15px; font-weight: 700; color: var(--ink); margin: 22px 0 8px; }
+    .acc-body h4:first-child { margin-top: 16px; }
+    .acc-body p, .acc-body li { font-size: 13.5px; color: var(--ink-soft); line-height: 1.65; }
+    .acc-body p { margin: 0 0 10px; }
+    .acc-body ul { margin: 0 0 10px; padding-left: 20px; }
+    .acc-disclaimer {
+      margin-top: 20px; padding: 14px 16px; background: #fff8e8; border: 1px solid #f0e0b8;
+      border-radius: 10px; font-size: 12.5px; color: #8a6d2f;
+    }
+
+    /* ---------- Acceptance ---------- */
+    .accept-card {
+      margin-top: 30px; background: var(--card); border: 1px solid var(--line);
+      border-radius: 20px; padding: 32px; box-shadow: var(--shadow-sm);
+    }
+    .accept-row { display: flex; align-items: flex-start; gap: 14px; padding: 14px 0; }
+    .accept-row + .accept-row { border-top: 1px solid var(--line); }
+    .accept-row input[type="checkbox"] {
+      appearance: none; -webkit-appearance: none; flex-shrink: 0;
+      width: 24px; height: 24px; border: 2px solid #c4d0de; border-radius: 7px;
+      cursor: pointer; position: relative; margin-top: 1px; transition: all .15s ease; background: #fff;
+    }
+    .accept-row input[type="checkbox"]:checked {
+      background: var(--brand-cyan); border-color: var(--brand-cyan);
+    }
+    .accept-row input[type="checkbox"]:checked::after {
+      content: ""; position: absolute; left: 7px; top: 3px; width: 6px; height: 11px;
+      border: solid #fff; border-width: 0 2.5px 2.5px 0; transform: rotate(45deg);
+    }
+    .accept-row label { font-size: 15.5px; color: var(--ink); line-height: 1.5; cursor: pointer; }
+    .accept-row label .req { color: #e0556b; margin-left: 3px; }
+
+    button.cta {
+      margin-top: 26px; width: 100%; padding: 20px; background: var(--brand-cyan); color: #fff;
+      border: none; border-radius: 14px; font-size: 18px; font-weight: 600;
+      font-family: 'Poppins', sans-serif; cursor: pointer;
+      box-shadow: 0 14px 32px rgba(22,182,230,0.40);
+      transition: transform .15s ease, box-shadow .15s ease, background .15s ease, opacity .15s ease;
+    }
+    button.cta:hover:not(:disabled) { background: var(--brand-cyan-dark); transform: translateY(-2px); box-shadow: 0 18px 38px rgba(22,182,230,0.50); }
+    button.cta:disabled { background: #c4d0de; box-shadow: none; cursor: not-allowed; opacity: 0.85; }
+    .cta-help { text-align: center; color: var(--ink-soft); font-size: 13px; margin-top: 14px; display: flex; align-items: center; justify-content: center; gap: 7px; }
+    .cta-help svg { color: var(--brand-cyan-dark); }
+
+    @media (max-width: 760px) {
+      .wrap { padding: 36px 18px 64px; }
+      h1 { font-size: 32px; }
+      .summary-grid { grid-template-columns: 1fr; }
+      .summary-banner { padding: 24px; }
+      .terms-grid { grid-template-columns: 1fr; }
+      .section-title { font-size: 22px; }
+      .summary-banner .sb-plan { font-size: 25px; }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- ================= BRAND HEADER (no navigation) ================= -->
+  <header class="topbar">
+    <div class="nav">
+      <span class="logo">
+        <!-- Brand icon mark (real logo). To use the full stacked logo instead,
+             replace this block with: <img src="logo-full.png" alt="AI Listings" style="height:48px" /> -->
+        <span class="logo-mark">
+          <img src="logo-mark.png" alt="AI Listings" style="width:38px;height:38px;display:block;object-fit:contain;" />
+        </span>
+        <span class="logo-text">AI <b>Listings</b></span>
+      </span>
+      <div class="nav-secure">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Secure Agreement
+      </div>
+    </div>
+  </header>
+
+  <!-- ================= MAIN ================= -->
+  <div class="wrap">
+
+    <!-- Pricing Page → Agreement → Stripe → Success → Onboarding -->
+    <a class="back-link" href="/" id="backLink">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      Back to plans
+    </a>
+
+    <div class="journey">
+      <span class="j-step">Select Plan</span>
+      <span class="j-sep">→</span>
+      <span class="j-step active">Review &amp; Agree</span>
+      <span class="j-sep">→</span>
+      <span class="j-step">Secure Payment</span>
+      <span class="j-sep">→</span>
+      <span class="j-step">Onboarding</span>
+    </div>
+
+    <div class="head">
+      <span class="eyebrow">Agreement &amp; Confirmation</span>
+      <h1>Review Your Programme &amp; Agreement</h1>
+      <p class="subtext">
+        Please review your selected programme and the key terms below before proceeding to payment.
+      </p>
+    </div>
+
+    <!-- ============ PACKAGE SUMMARY ============ -->
+    <div class="summary-card">
+      <div class="summary-banner">
+        <div>
+          <div class="sb-label">Selected Plan</div>
+          <div class="sb-plan" id="sumPlan">Growth</div>
+        </div>
+        <div class="sb-badge" id="sumBadge">Best Balance of Cost &amp; Speed</div>
+      </div>
+      <div class="summary-grid">
+        <div class="summary-item highlight">
+          <div class="summary-label">One-Time Setup Fee</div>
+          <div class="summary-value">£<span id="sumSetup">599</span> <span class="vat">+ VAT</span></div>
+        </div>
+        <div class="summary-item highlight">
+          <div class="summary-label">Monthly Programme</div>
+          <div class="summary-value">£<span id="sumMonthly">399</span> <span class="vat">+ VAT / month</span></div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-label">Resource Allocation</div>
+          <div class="summary-value" id="sumAllocation">Enhanced</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-label">Implementation Capacity</div>
+          <div class="summary-value">Up to <span id="sumHours">12</span> hours <span class="vat">/ month</span></div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-label">Implementation Priority</div>
+          <div class="summary-value" id="sumPriority">Enhanced priority</div>
+        </div>
+        <div class="summary-item">
+          <div class="summary-label">Typical Progress Timeline</div>
+          <div class="summary-value" id="sumTimeline">6–9 months</div>
+        </div>
+      </div>
+      <div class="summary-fineprint">
+        All fees are exclusive of VAT. The monthly programme is an ongoing engagement reviewed every three months.
+      </div>
+    </div>
+
+    <!-- ============ WHAT HAPPENS NEXT ============ -->
+    <div class="section-block">
+      <h2 class="section-title">What Happens Next</h2>
+      <div class="timeline">
+        <div class="t-step">
+          <div class="t-node">1</div>
+          <div class="t-body">
+            <h4 class="step-title">Complete Payment</h4>
+            <p>Securely confirm your setup fee and first monthly payment via Stripe.</p>
+          </div>
+        </div>
+        <div class="t-step">
+          <div class="t-node">2</div>
+          <div class="t-body">
+            <h4 class="step-title">Receive Welcome Email</h4>
+            <p>Your confirmation, receipt, and next steps arrive in your inbox.</p>
+          </div>
+        </div>
+        <div class="t-step">
+          <div class="t-node">3</div>
+          <div class="t-body">
+            <h4 class="step-title">Complete Onboarding Form</h4>
+            <p>Share your business details and access so we can prepare your programme.</p>
+          </div>
+        </div>
+        <div class="t-step">
+          <div class="t-node">4</div>
+          <div class="t-body">
+            <h4 class="step-title">Kick-Off &amp; Strategy Review</h4>
+            <p>We align on priorities, goals, and your tailored visibility roadmap.</p>
+          </div>
+        </div>
+        <div class="t-step">
+          <div class="t-node">5</div>
+          <div class="t-body">
+            <h4 class="step-title">Foundation Implementation Begins</h4>
+            <p>We start building the core of your AI visibility programme.</p>
+          </div>
+        </div>
+        <div class="t-step">
+          <div class="t-node">6</div>
+          <div class="t-body">
+            <h4 class="step-title">Monthly Optimisation &amp; Reporting</h4>
+            <p>Ongoing implementation, refinement, and transparent progress reporting.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ KEY COMMERCIAL TERMS ============ -->
+    <div class="section-block">
+      <h2 class="section-title">Key Commercial Terms</h2>
+      <div class="terms-grid">
+
+        <div class="term-card">
+          <div class="term-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.2-8.6"/><polyline points="21 4 21 9 16 9"/></svg>
+          </div>
+          <h3>Term Structure</h3>
+          <p>This is an ongoing AI visibility programme delivered in rolling three-month review cycles.</p>
+          <p>Progress is reviewed every three months to assess priorities, opportunities and next steps.</p>
+        </div>
+
+        <div class="term-card">
+          <div class="term-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </div>
+          <h3>Cancellation</h3>
+          <p>You may cancel by providing 30 days written notice before the end of your current review cycle.</p>
+          <p>If no notice is given, the programme continues automatically.</p>
+        </div>
+
+        <div class="term-card">
+          <div class="term-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          </div>
+          <h3>Results &amp; Expectations</h3>
+          <p>AI Listings works to improve your visibility, authority and recommendation opportunities across AI search systems.</p>
+          <p>No rankings, citations, recommendations or visibility outcomes can be guaranteed.</p>
+          <p>Typical visible progress may be seen within the timeline associated with your selected programme, although results vary by market and business.</p>
+        </div>
+
+        <div class="term-card">
+          <div class="term-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <h3>Client Responsibilities</h3>
+          <p>To maximise performance, you agree to:</p>
+          <ul>
+            <li>Provide timely access to required systems</li>
+            <li>Respond to requests for information</li>
+            <li>Review and approve materials when required</li>
+            <li>Maintain accurate business information</li>
+          </ul>
+          <p class="term-note">Delays may impact timelines and results.</p>
+        </div>
+
+        <div class="term-card full">
+          <div class="term-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <h3>Liability</h3>
+          <p>Liability is limited to fees paid during the previous three months.</p>
+          <p>AI Listings is not liable for indirect losses, lost profits or business opportunities.</p>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ============ FULL TERMS ACCORDION ============ -->
+    <div class="section-block">
+      <h2 class="section-title">The Full Agreement</h2>
+      <details class="accordion">
+        <summary>
+          View Full Terms &amp; Conditions
+          <svg class="chev" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </summary>
+        <div class="acc-body">
+          <!-- ============================================================
+               FULL TERMS & CONDITIONS
+               NOTE: This is a working draft based on the AI Listings
+               programme terms. Replace / confirm with the final wording
+               approved by your legal advisor before going live.
+               ============================================================ -->
+
+          <h4>1. The Agreement</h4>
+          <p>This agreement is made between AI Listings ("we", "us", "our") and the client identified at checkout ("you", "your"). By proceeding to payment you confirm you have read, understood and accept these Terms &amp; Conditions.</p>
+
+          <h4>2. The Services</h4>
+          <p>We provide an ongoing AI visibility programme intended to improve your visibility, authority and recommendation opportunities across AI search systems. Each plan provides a defined level of monthly resource allocation and implementation priority rather than a fixed number of guaranteed hours or deliverables. We will allocate implementation capacity to the activities we reasonably determine will most effectively progress your programme.</p>
+
+          <h4>3. Fees &amp; Payment</h4>
+          <p>You agree to pay the one-time setup fee and the recurring monthly programme fee for your selected plan, each exclusive of VAT. The setup fee is charged once at the start of the programme. The monthly fee is charged in advance on a recurring basis via our payment provider (Stripe) until cancelled in accordance with these terms. Fees may be reviewed from time to time, with reasonable notice provided before any change takes effect.</p>
+
+          <h4>4. Term &amp; Review Cycles</h4>
+          <p>The programme is ongoing and delivered in rolling three-month review cycles. At each review we assess performance, priorities, opportunities and next steps. There is no fixed minimum total term; the programme continues on a rolling basis until cancelled.</p>
+
+          <h4>5. Cancellation</h4>
+          <p>You may cancel by providing at least 30 days' written notice before the end of your current three-month review cycle. If no notice is given, the programme renews and continues automatically into the next cycle. Fees already paid are non-refundable except where required by law. Cancellation does not relieve you of any fees accrued up to the effective date of cancellation.</p>
+
+          <h4>6. Client Responsibilities</h4>
+          <p>To enable us to perform the services effectively, you agree to:</p>
+          <ul>
+            <li>Provide timely access to required systems, platforms and accounts;</li>
+            <li>Respond promptly to requests for information or input;</li>
+            <li>Review and approve materials when required; and</li>
+            <li>Maintain accurate and up-to-date business information.</li>
+          </ul>
+          <p>Delays in providing access, information or approvals may impact timelines and results, for which we are not responsible.</p>
+
+          <h4>7. Results &amp; Expectations</h4>
+          <p>We work in good faith to improve your AI visibility, authority and recommendation opportunities. However, AI search systems are controlled by third parties and outcomes depend on many factors outside our control. We do not and cannot guarantee any specific rankings, citations, recommendations, visibility outcomes or commercial results. Any timelines provided are typical estimates only and actual results vary by market, competition, existing authority and implementation speed.</p>
+
+          <h4>8. Limitation of Liability</h4>
+          <p>To the maximum extent permitted by law, our total aggregate liability arising out of or in connection with this agreement is limited to the fees paid by you during the three months immediately preceding the event giving rise to the claim. We are not liable for any indirect, incidental or consequential losses, including lost profits, lost revenue, lost business opportunities or loss of goodwill. Nothing in this agreement limits liability that cannot be limited by law.</p>
+
+          <h4>9. Confidentiality</h4>
+          <p>Each party will keep confidential any non-public information disclosed by the other and use it only for the purpose of performing this agreement.</p>
+
+          <h4>10. Intellectual Property</h4>
+          <p>Subject to payment of all fees due, deliverables created specifically for you become your property. We retain ownership of our pre-existing methodologies, tools, templates and know-how.</p>
+
+          <h4>11. Data Protection</h4>
+          <p>Both parties will comply with applicable data protection laws. We will process personal data only as necessary to deliver the services and in accordance with our privacy policy.</p>
+
+          <h4>12. Governing Law</h4>
+          <p>This agreement is governed by the laws of England and Wales, and the courts of England and Wales have exclusive jurisdiction over any disputes.</p>
+
+          <div class="acc-disclaimer">
+            This summary is provided for clarity and convenience. It is a working draft and should be reviewed and finalised by your legal advisor before publication. The accepted version at the time of purchase forms the binding agreement.
+          </div>
+        </div>
+      </details>
+    </div>
+
+    <!-- ============ ACCEPTANCE ============ -->
+    <div class="section-block">
+      <h2 class="section-title">Confirm &amp; Accept</h2>
+      <div class="accept-card">
+        <div class="accept-row">
+          <input type="checkbox" id="agreeTerms" />
+          <label for="agreeTerms">
+            I have read and agree to the <strong>Terms &amp; Conditions</strong>.<span class="req">*</span>
+          </label>
+        </div>
+        <div class="accept-row">
+          <input type="checkbox" id="agreeAuth" />
+          <label for="agreeAuth">
+            I confirm I am authorised to enter this agreement on behalf of my business.<span class="req">*</span>
+          </label>
+        </div>
+
+        <!-- =========================================================
+             PROCEED TO PAYMENT
+             Future integration points (wired up later):
+               • STRIPE CHECKOUT      — redirect to the plan's Stripe payment link / session
+               • DYNAMIC AGREEMENT    — generate the signed agreement PDF from selected plan + customer data
+               • DIGITAL SIGNATURE    — record acceptance (timestamp, IP, plan, T&C version)
+               • CRM INTEGRATION      — create/update deal + contact on acceptance
+               • CLIENT ONBOARDING    — trigger onboarding sequence after successful payment
+             ========================================================= -->
+        <button class="cta" id="proceedBtn" disabled onclick="proceed()">Proceed To Secure Payment →</button>
+        <p class="cta-help">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Payments are processed securely by Stripe. Both confirmations are required to continue.
+        </p>
+      </div>
+    </div>
+
+  </div><!-- /wrap -->
+
+  <script>
+    /* ---------------------------------------------------------
+       PLAN DATA — kept consistent with the pricing page.
+       The selected plan is passed from the pricing page via the
+       URL query string, e.g. agreement.html?plan=growth
+       --------------------------------------------------------- */
+    const plans = {
+      foundation: {
+        name: "Foundation",
+        badge: "Long-Term Growth",
+        setupFee: 399,
+        monthlyFee: 199,
+        allocation: "Essential",
+        priority: "Standard priority",
+        hours: 6,
+        timeline: "9–12 months",
+        // Stripe Payment Link — Foundation (setup £399 + monthly £199, both + VAT)
+        stripeLink: "https://buy.stripe.com/28EeVc75sey98JY7Kx5AQ0G"
+      },
+      growth: {
+        name: "Growth",
+        badge: "Best Balance of Cost & Speed",
+        setupFee: 599,
+        monthlyFee: 399,
+        allocation: "Enhanced",
+        priority: "Enhanced priority",
+        hours: 12,
+        timeline: "6–9 months",
+        // Stripe Payment Link — Growth (setup £599 + monthly £399, both + VAT)
+        stripeLink: "https://buy.stripe.com/00w28q9dA89L5xM9SF5AQ0F"
+      },
+      accelerate: {
+        name: "Accelerate",
+        badge: "Fastest Progress",
+        setupFee: 799,
+        monthlyFee: 699,
+        allocation: "Priority",
+        priority: "Priority implementation",
+        hours: 20,
+        timeline: "3–6 months",
+        // Stripe Payment Link — Accelerate (setup £799 + monthly £699, both + VAT)
+        stripeLink: "https://buy.stripe.com/3cI8wOcpM75H5xM4yl5AQ0E"
+      }
+    };
+
+    // Resolve selected plan from ?plan= (defaults to growth)
+    function getSelectedKey() {
+      const params = new URLSearchParams(window.location.search);
+      const key = (params.get("plan") || "growth").toLowerCase();
+      return plans[key] ? key : "growth";
+    }
+
+    const selectedKey = getSelectedKey();
+    const plan = plans[selectedKey];
+
+    // Populate the package summary
+    document.getElementById("sumPlan").innerText = plan.name;
+    document.getElementById("sumBadge").innerText = plan.badge;
+    document.getElementById("sumSetup").innerText = plan.setupFee;
+    document.getElementById("sumMonthly").innerText = plan.monthlyFee;
+    document.getElementById("sumAllocation").innerText = plan.allocation;
+    document.getElementById("sumHours").innerText = plan.hours;
+    document.getElementById("sumPriority").innerText = plan.priority;
+    document.getElementById("sumTimeline").innerText = plan.timeline;
+
+    // Preserve the selected plan on the "back to plans" link (home = pricing page)
+    document.getElementById("backLink").href = "/?plan=" + selectedKey;
+
+    // Enable the CTA only when BOTH boxes are checked
+    const cbTerms = document.getElementById("agreeTerms");
+    const cbAuth  = document.getElementById("agreeAuth");
+    const proceedBtn = document.getElementById("proceedBtn");
+
+    function syncButton() {
+      proceedBtn.disabled = !(cbTerms.checked && cbAuth.checked);
+    }
+    cbTerms.addEventListener("change", syncButton);
+    cbAuth.addEventListener("change", syncButton);
+    syncButton();
+
+    // Version stamp for the accepted terms — bump this whenever the T&Cs change.
+    const TERMS_VERSION = "2026-06-03";
+
+    function proceed() {
+      if (proceedBtn.disabled) return;
+
+      /* ---------------------------------------------------------
+         MVP FLOW (Phase 1):
+           1. Record proof of acceptance locally (below).
+           2. Redirect to the plan's Stripe Payment Link, which collects
+              the setup fee + first month and creates the subscription,
+              then redirects to the success/onboarding page configured on
+              the Payment Link in the Stripe dashboard.
+
+         PHASE 2 (later, once converting):
+           • Persist the acceptance record server-side (DB) instead of
+             localStorage, capturing IP + a server timestamp.
+           • Stripe webhook → CRM → Slack channel → onboarding automation.
+           • Dynamic agreement PDF generation + e-signature if required.
+         --------------------------------------------------------- */
+
+      // --- Proof of agreement acceptance (dispute evidence) ---
+      const acceptanceRecord = {
+        agreementAccepted: cbTerms.checked,        // "I have read and agree to the Terms"
+        authorityConfirmed: cbAuth.checked,        // "I am authorised to enter this agreement"
+        plan: selectedKey,
+        planName: plan.name,
+        setupFee: plan.setupFee,
+        monthlyFee: plan.monthlyFee,
+        termsVersion: TERMS_VERSION,
+        timestamp: new Date().toISOString(),       // client-side timestamp (server time added in Phase 2)
+        userAgent: navigator.userAgent,
+        pageUrl: window.location.href
+      };
+      try {
+        localStorage.setItem("aiListings_agreement_" + selectedKey, JSON.stringify(acceptanceRecord));
+      } catch (e) { /* storage may be unavailable; redirect regardless */ }
+
+      // Redirect to the selected plan's live Stripe Payment Link.
+      window.location.href = plan.stripeLink;
+    }
+  </script>
+
+</body>
+</html>
