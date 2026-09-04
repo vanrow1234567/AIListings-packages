@@ -77,8 +77,34 @@ export function extractCandidates(response: ChatGptResponse): Candidate[] {
   return out;
 }
 
+/**
+ * Two businesses joined by the literal word "and" ("Cedar Ceramics and Lewis Cowburn Tiling").
+ * Split only when EVERY segment is independently a plausible multi-word business name: at least
+ * two words, each capitalised (joiners aside) and passing the name gate. "Signature Tiling and
+ * Carpentry" keeps one candidate because "Carpentry" is a single word; "&" never splits.
+ */
+export function splitJoinedNames(name: string): string[] {
+  if (!/\sand\s/i.test(name)) return [name];
+  const segments = name.split(/\s+and\s+/i).map((s) => s.trim());
+  if (segments.length < 2) return [name];
+  const plausible = (seg: string) => {
+    const words = seg.split(/\s+/);
+    return words.length >= 2 && words.every((w) => /^[A-Z0-9]/.test(w) || NAME_JOINERS.has(w.toLowerCase())) && looksLikeName(seg);
+  };
+  return segments.every(plausible) ? segments : [name];
+}
+
 function pushName(out: Candidate[], raw: string, source: Candidate['source'], visibleText: string, domain?: string, href?: string): void {
-  const name = raw.replace(/[*_`"“”]+/g, '').replace(/\s+/g, ' ').replace(/[:.,;–—-]+$/, '').trim();
+  const cleaned = raw.replace(/[*_`"“”]+/g, '').replace(/\s+/g, ' ').replace(/[:.,;–—-]+$/, '').trim();
+  const parts = splitJoinedNames(cleaned);
+  if (parts.length > 1) {
+    for (const part of parts) pushOne(out, part, source, visibleText, domain, href);
+    return;
+  }
+  pushOne(out, cleaned, source, visibleText, domain, href);
+}
+
+function pushOne(out: Candidate[], name: string, source: Candidate['source'], visibleText: string, domain?: string, href?: string): void {
   if (!looksLikeName(name)) return;
   const context = visibleContext(visibleText, name);
   // Not in the visible text (hidden element, alt text, tooltip): not evidence the user saw it.
@@ -148,11 +174,23 @@ export function looksLikeInstructionOrPhrase(name: string): boolean {
 const SECTION_WORDS =
   /\b(recommendations?|options?|guide|guides|tips?|advice|checklist|summary|overview|faqs?|notes?|steps?|questions?|considerations?|factors?|signs?|causes?|pros|cons|verdict|conclusion|takeaways?|alternatives?|approach|approaches|comparison|examples?|sources?|references?|disclaimer|caveats?)\b/i;
 
+/**
+ * Scope descriptions from price guides and quotes: a quantifier plus a room / area noun
+ * ("Whole room", "Entire house", "Single wall"). Deliberately narrow: the quantifier list is
+ * closed and the noun must be a room or area, so company names are unaffected.
+ */
+const SCOPE_PHRASE = /^(whole|entire|full|complete|single|one|half|part|partial|small|large|medium)\s+(room|rooms|house|home|property|floor|floors|wall|walls|bathroom|bathrooms|kitchen|kitchens|hallway|area|areas|space|spaces|refit|refurb|job|jobs|project|projects)$/i;
+
+export function looksLikeScopePhrase(name: string): boolean {
+  return SCOPE_PHRASE.test(name.trim());
+}
+
 export function looksLikeName(name: string): boolean {
   if (name.length < 2 || name.length > 60) return false;
   const words = name.split(/\s+/);
   if (words.length > 6) return false;
   if (looksLikeCountOrRating(name)) return false;
+  if (looksLikeScopePhrase(name)) return false;
   if (SECTION_WORDS.test(name) && !/\b(ltd|limited|plc|llp|co|company|group)\b/i.test(name)) return false;
   if (!isBareDomain(name) && looksLikeInstructionOrPhrase(name)) return false;
   // Names start with a capital or digit; bare domains ("ls-tiling.co.uk") are allowed because a

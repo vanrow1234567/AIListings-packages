@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { understandBusiness, toDomain, parseHtml } from '../src/business/understand.ts';
 import { generateLayerPrompts, nextConversationalFollowUp, brandDiagnosticPrompt } from '../src/prompts/generate.ts';
-import { extractCandidates } from '../src/analysis/extract.ts';
+import { extractCandidates, looksLikeName, looksLikeScopePhrase, splitJoinedNames } from '../src/analysis/extract.ts';
 import { sameBusiness, nameKey } from '../src/analysis/normalise.ts';
 import { classifyCandidate, rankCompetitors, toMentions } from '../src/competitors/classify.ts';
 import { decideAuditStatus } from '../src/audit/decide.ts';
@@ -152,4 +152,51 @@ test('API validation mirrors the future CRM contract', () => {
   if (ok.ok) assert.deepEqual(ok.value, { business_name: 'SPP Roofing', website: 'spproofing.co.uk', location: 'Southampton', lead_id: 'ghl_123' });
   const bad = validateRequest({ business_name: 'X', website: '', location: 'Y' });
   assert.ok(!bad.ok && /website/.test(bad.error));
+});
+
+test('extraction: scope phrases are rejected; joined names split only when both sides are multi-word names', () => {
+  // A. "Whole room" and equivalents are price-guide scope descriptions, not businesses.
+  for (const scope of ['Whole room', 'Entire room', 'Full room', 'Single room', 'One room', 'Whole house', 'Entire bathroom']) {
+    assert.ok(looksLikeScopePhrase(scope), scope);
+    assert.equal(looksLikeName(scope), false, scope);
+  }
+  // Company names that merely start with one of those words are untouched.
+  for (const ok of ['Whole Room Interiors Ltd', 'Complete Tiling Solutions', 'Single Malt Bar', 'One Stop Tiles']) {
+    assert.equal(looksLikeScopePhrase(ok), false, ok);
+    assert.ok(looksLikeName(ok), ok);
+  }
+  const jobs = extractCandidates({
+    text: 'Whole room – £1,500\nSignature Tiling & Carpentry – Chesham.',
+    html: '<ul><li><p><strong>Whole room</strong> – £1,500</p></li><li><p><strong>Signature Tiling &amp; Carpentry</strong> – Chesham.</p></li></ul>',
+    links: [],
+  });
+  assert.ok(!jobs.some((c) => c.raw === 'Whole room'));
+  assert.ok(jobs.some((c) => c.raw === 'Signature Tiling & Carpentry'));
+
+  // B. Two businesses joined by "and" are split; one business containing "and" is not.
+  assert.deepEqual(splitJoinedNames('Cedar Ceramics and Lewis Cowburn Tiling'), ['Cedar Ceramics', 'Lewis Cowburn Tiling']);
+  assert.deepEqual(splitJoinedNames('Signature Tiling and Carpentry'), ['Signature Tiling and Carpentry']);
+  assert.deepEqual(splitJoinedNames('Limartra Tiling and Restoration'), ['Limartra Tiling and Restoration']);
+  assert.deepEqual(splitJoinedNames('Stone and Slate Co'), ['Stone and Slate Co']);
+  assert.deepEqual(splitJoinedNames('Ls tiling & Patios'), ['Ls tiling & Patios'], '& never splits');
+  assert.deepEqual(splitJoinedNames('Cedar Ceramics & Lewis Cowburn Tiling'), ['Cedar Ceramics & Lewis Cowburn Tiling'], '& never splits');
+  assert.deepEqual(splitJoinedNames('Cedar Ceramics and the best tilers'), ['Cedar Ceramics and the best tilers'], 'a lowercase phrase is not a business name');
+
+  const joined = extractCandidates({
+    text: 'Local tilers people recommend include Cedar Ceramics and Lewis Cowburn Tiling in Aylesbury. Signature Tiling and Carpentry covers Chesham. Ls tiling & Patios is in Wendover.',
+    html: '<p>Local tilers people recommend include <strong>Cedar Ceramics and Lewis Cowburn Tiling</strong> in Aylesbury. <strong>Signature Tiling and Carpentry</strong> covers Chesham. <strong>Ls tiling &amp; Patios</strong> is in Wendover.</p>',
+    links: [],
+  });
+  const raws = joined.map((c) => c.raw);
+  assert.ok(raws.includes('Cedar Ceramics'), raws.join(' | '));
+  assert.ok(raws.includes('Lewis Cowburn Tiling'), raws.join(' | '));
+  assert.ok(!raws.includes('Cedar Ceramics and Lewis Cowburn Tiling'), 'merged candidate must never survive');
+  assert.ok(raws.includes('Signature Tiling and Carpentry'));
+  assert.ok(raws.includes('Ls tiling & Patios'));
+  assert.equal(raws.filter((r) => /Ls tiling/.test(r)).length, raws.filter((r) => r === 'Ls tiling & Patios').length, 'Ls tiling & Patios stays a single candidate');
+  // Each split candidate keeps its own visible-text evidence.
+  const cedar = joined.find((c) => c.raw === 'Cedar Ceramics');
+  const lewis = joined.find((c) => c.raw === 'Lewis Cowburn Tiling');
+  assert.match(cedar?.context ?? '', /Cedar Ceramics and Lewis Cowburn Tiling/);
+  assert.match(lewis?.context ?? '', /Lewis Cowburn Tiling in Aylesbury/);
 });
