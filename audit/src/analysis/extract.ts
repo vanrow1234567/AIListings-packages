@@ -1,5 +1,6 @@
 import type { ChatGptResponse } from '../domain/types.ts';
-import { TRADE_WORDS } from '../business/catalogue.ts';
+import { GENERIC_BUSINESS_WORDS, TRADE_WORDS } from '../business/catalogue.ts';
+import { isServiceWord } from './normalise.ts';
 import { hostOf } from './normalise.ts';
 
 /** A candidate business name pulled out of a displayed ChatGPT response. */
@@ -77,11 +78,29 @@ export function extractCandidates(response: ChatGptResponse): Candidate[] {
   return out;
 }
 
+const GENERIC_WORDS = new Set(GENERIC_BUSINESS_WORDS);
+const LEGAL_SUFFIXES = new Set(['ltd', 'limited', 'llp', 'plc', 'co', 'company', 'group', 'inc', 'corp']);
+
+/**
+ * Identity tokens of a name segment: words that are not trade / service words, legal suffixes,
+ * generic business filler or joiners. "Bathroom Ltd" has none; "Cedar Ceramics" has "cedar".
+ */
+export function distinctiveSegmentTokens(segment: string): string[] {
+  return segment
+    .toLowerCase()
+    .replace(/[’']/g, '')
+    .split(/[^a-z0-9&]+/)
+    .filter(Boolean)
+    .filter((t) => t !== '&' && !NAME_JOINERS.has(t) && !LEGAL_SUFFIXES.has(t) && !GENERIC_WORDS.has(t) && !isServiceWord(t));
+}
+
 /**
  * Two businesses joined by the literal word "and" ("Cedar Ceramics and Lewis Cowburn Tiling").
- * Split only when EVERY segment is independently a plausible multi-word business name: at least
- * two words, each capitalised (joiners aside) and passing the name gate. "Signature Tiling and
- * Carpentry" keeps one candidate because "Carpentry" is a single word; "&" never splits.
+ * Split only when EVERY segment is independently a plausible business name: at least two words,
+ * each capitalised (joiners aside), passing the name gate, AND carrying at least one distinctive
+ * identity token of its own. "Signature Tiling and Carpentry" keeps one candidate because
+ * "Carpentry" is a single word; "Johns Tiling And Bathroom Ltd" keeps one because "Bathroom Ltd"
+ * is only a trade word plus a legal suffix; "&" never splits.
  */
 export function splitJoinedNames(name: string): string[] {
   if (!/\sand\s/i.test(name)) return [name];
@@ -89,7 +108,12 @@ export function splitJoinedNames(name: string): string[] {
   if (segments.length < 2) return [name];
   const plausible = (seg: string) => {
     const words = seg.split(/\s+/);
-    return words.length >= 2 && words.every((w) => /^[A-Z0-9]/.test(w) || NAME_JOINERS.has(w.toLowerCase())) && looksLikeName(seg);
+    return (
+      words.length >= 2 &&
+      words.every((w) => /^[A-Z0-9]/.test(w) || NAME_JOINERS.has(w.toLowerCase())) &&
+      looksLikeName(seg) &&
+      distinctiveSegmentTokens(seg).length > 0
+    );
   };
   return segments.every(plausible) ? segments : [name];
 }

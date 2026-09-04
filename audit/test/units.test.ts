@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { understandBusiness, toDomain, parseHtml } from '../src/business/understand.ts';
 import { generateLayerPrompts, nextConversationalFollowUp, brandDiagnosticPrompt } from '../src/prompts/generate.ts';
-import { extractCandidates, looksLikeName, looksLikeScopePhrase, splitJoinedNames } from '../src/analysis/extract.ts';
+import { distinctiveSegmentTokens, extractCandidates, looksLikeName, looksLikeScopePhrase, splitJoinedNames } from '../src/analysis/extract.ts';
 import { sameBusiness, nameKey } from '../src/analysis/normalise.ts';
 import { classifyCandidate, rankCompetitors, toMentions } from '../src/competitors/classify.ts';
 import { decideAuditStatus } from '../src/audit/decide.ts';
@@ -230,4 +230,36 @@ test('extraction: a split LINK candidate does not pass its href/domain to either
   assert.equal(byName('Ls tiling & Patios').length, 1);
   assert.equal(byName('Ls tiling & Patios')[0]?.href, 'https://lstilingpatios.example/');
   assert.ok(!links.some((c) => c.raw === 'Signature Tiling' || c.raw === 'Carpentry' || c.raw === 'Patios'));
+});
+
+test('extraction: a segment without a distinctive identity token never qualifies as a separate business', () => {
+  // 1. The production regression: one company whose name contains "And".
+  assert.deepEqual(splitJoinedNames('Johns Tiling And Bathroom Ltd'), ['Johns Tiling And Bathroom Ltd']);
+  assert.deepEqual(splitJoinedNames('Johns Tiling and Bathroom Ltd'), ['Johns Tiling and Bathroom Ltd']);
+  // 2. "Bathroom Ltd" is trade word + legal suffix only.
+  assert.deepEqual(distinctiveSegmentTokens('Bathroom Ltd'), []);
+  assert.deepEqual(distinctiveSegmentTokens('Tiling Services Limited'), []);
+  assert.deepEqual(distinctiveSegmentTokens('Roofing Co'), []);
+  assert.deepEqual(distinctiveSegmentTokens('Johns Tiling'), ['johns']);
+  assert.deepEqual(distinctiveSegmentTokens('Cedar Ceramics'), ['cedar'], 'ceramics is a trade word; cedar is the identity');
+  assert.deepEqual(distinctiveSegmentTokens('Lewis Cowburn Tiling'), ['lewis', 'cowburn']);
+  assert.deepEqual(splitJoinedNames('Cedar Ceramics and Tiling Services Ltd'), ['Cedar Ceramics and Tiling Services Ltd']);
+  assert.deepEqual(splitJoinedNames('Kitchen Fitting and Bathroom Tiling'), ['Kitchen Fitting and Bathroom Tiling'], 'two job descriptions are not two businesses');
+  // 3. The intended split still happens when every segment has its own identity.
+  assert.deepEqual(splitJoinedNames('Cedar Ceramics and Lewis Cowburn Tiling'), ['Cedar Ceramics', 'Lewis Cowburn Tiling']);
+  assert.deepEqual(splitJoinedNames('Johns Tiling and Cedar Ceramics'), ['Johns Tiling', 'Cedar Ceramics']);
+  // 4 / 5. Existing safeguards.
+  assert.deepEqual(splitJoinedNames('Signature Tiling and Carpentry'), ['Signature Tiling and Carpentry']);
+  assert.deepEqual(splitJoinedNames('Ls tiling & Patios'), ['Ls tiling & Patios']);
+  // Through extraction, the single business survives intact from bold, list and plain text.
+  const cands = extractCandidates({
+    text: 'Johns Tiling And Bathroom Ltd – Aylesbury.\nCedar Ceramics and Lewis Cowburn Tiling also cover the area.',
+    html: '<ul><li><p><strong>Johns Tiling And Bathroom Ltd</strong> – Aylesbury.</p></li></ul><p>Cedar Ceramics and Lewis Cowburn Tiling also cover the area.</p>',
+    links: [],
+  });
+  const raws = cands.map((c) => c.raw);
+  assert.ok(raws.includes('Johns Tiling And Bathroom Ltd'));
+  assert.ok(!raws.includes('Johns Tiling') && !raws.includes('Bathroom Ltd'));
+  assert.ok(raws.includes('Cedar Ceramics') && raws.includes('Lewis Cowburn Tiling'));
+  assert.ok(!raws.includes('Cedar Ceramics and Lewis Cowburn Tiling'));
 });
