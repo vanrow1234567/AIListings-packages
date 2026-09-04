@@ -17,7 +17,7 @@ import { understandBusiness, type WebsiteFetcher } from '../business/understand.
 import { brandDiagnosticPrompt, generateLayerPrompts, nextConversationalFollowUp } from '../prompts/generate.ts';
 import { extractCandidates } from '../analysis/extract.ts';
 import { rankCompetitors, toMentions } from '../competitors/classify.ts';
-import { businessesSurfaced, competitorNames, decideAuditStatus, decideLayerState, prospectEvidence } from './decide.ts';
+import { businessesSurfaced, competitorNames, decideAuditStatus, decideLayerState, hasUsableResponse, prospectEvidence, unresolvedIdentities } from './decide.ts';
 import { generateOutreach } from '../outreach/generate.ts';
 import type { EvidenceStore } from '../evidence/capture.ts';
 import type { AuditStore } from '../persistence/store.ts';
@@ -264,13 +264,19 @@ export class AuditEngine {
  * independent: three competitors surfaced with the prospect absent is prospectPresent = NO.
  */
 export function finaliseLayer(result: LayerResult): void {
-  result.state = decideLayerState(result.entities);
-  result.prospectPresent = result.state === 'YES' ? 'YES' : 'NO';
+  result.state = decideLayerState(result.entities, result.identityResolutions);
+  result.prospectPresent = result.state === 'YES' ? 'YES' : result.state === 'IDENTITY_UNRESOLVED' ? 'UNRESOLVED' : 'NO';
   result.businessesSurfaced = businessesSurfaced(result.entities);
   result.competitorsMentioned = competitorNames(result.entities);
   const evidence = prospectEvidence(result.entities);
   if (evidence.length > 0) result.prospectMatchEvidence = evidence;
   else delete result.prospectMatchEvidence;
+  if (result.state === 'IDENTITY_UNRESOLVED') {
+    const names = [...new Set(unresolvedIdentities(result.identityResolutions).map((r) => `"${r.candidateName}"`))].join(', ');
+    result.error = `Could not prove whether ${names} is the prospect; not reported as NO.`;
+  } else {
+    delete result.error;
+  }
 }
 
 /**
@@ -287,7 +293,7 @@ export function reanalyseRecord(record: AuditRecord): AuditRecord {
   }
   for (const layer of LAYERS) {
     const result = record.layers[layer];
-    if (!isConclusiveState(result.state)) continue;
+    if (!hasUsableResponse(result.state)) continue;
     result.entities = result.turns.flatMap((t) => toMentions(extractCandidates(t.response), u.prospect, layer, t.index));
     applyStoredResolutions(result, u.prospect); // sync: stored CONFIRMED_PROSPECT resolutions still count
     finaliseLayer(result);
@@ -324,21 +330,17 @@ export async function reanalyseRecordWithIdentity(record: AuditRecord, identity:
   if (!u) return record;
   for (const layer of LAYERS) {
     const result = record.layers[layer];
-    if (!isConclusiveState(result.state)) continue;
+    if (!hasUsableResponse(result.state)) continue;
     delete result.identityResolutions;
   }
   reanalyseRecord(record);
   for (const layer of LAYERS) {
     const result = record.layers[layer];
-    if (!isConclusiveState(result.state)) continue;
+    if (!hasUsableResponse(result.state)) continue;
     await resolveLayerIdentity(result, u.prospect, identity, '');
     finaliseLayer(result);
   }
   return reanalyseRecord(record); // recompute status, competitors, outreach, public report with resolutions applied
-}
-
-function isConclusiveState(state: LayerResult['state']): boolean {
-  return state === 'YES' || state === 'NO';
 }
 
 export function summarise(record: AuditRecord, publicBaseUrl?: string) {

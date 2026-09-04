@@ -8,8 +8,13 @@
 export const LAYERS = ['VISIBLE', 'RECOMMENDED', 'CONVERSATIONAL'] as const;
 export type Layer = (typeof LAYERS)[number];
 
-/** Result state for a single layer (and for diagnostics). */
-export type LayerState = 'YES' | 'NO' | 'NOT_TESTED' | 'ERROR' | 'SIGN_IN_REQUIRED';
+/**
+ * Result state for a single layer (and for diagnostics).
+ * IDENTITY_UNRESOLVED: ChatGPT answered, the prospect was not proven present, but a surfaced
+ * result that could plausibly be the prospect could not be proven either way. Non-conclusive:
+ * it is never reported as NO and makes the audit INCOMPLETE.
+ */
+export type LayerState = 'YES' | 'NO' | 'NOT_TESTED' | 'ERROR' | 'SIGN_IN_REQUIRED' | 'IDENTITY_UNRESOLVED';
 
 export type AuditStatus =
   | 'QUEUED'
@@ -178,7 +183,7 @@ export interface LayerResult {
    * Whether the PROSPECT itself was visibly surfaced. Independent of businessesSurfaced:
    * a layer can surface three competitors and still be prospectPresent = NO.
    */
-  prospectPresent?: 'YES' | 'NO';
+  prospectPresent?: 'YES' | 'NO' | 'UNRESOLVED';
   /** Every genuine, user-visible named business surfaced in this layer (prospect included when present). */
   businessesSurfaced: string[];
   /** Required whenever state === 'YES': the visible text that proved the prospect was there. */

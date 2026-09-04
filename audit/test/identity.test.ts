@@ -255,12 +255,14 @@ async function runWithIdentity(href: string | undefined, identity: IdentityProvi
   return { record, store };
 }
 
-test('engine: no link -> UNRESOLVED stored, Conversational stays NO, name stays a surfaced business', async () => {
+test('engine: no link -> UNRESOLVED stored, Conversational is non-conclusive, name stays a surfaced business', async () => {
   const { record } = await runWithIdentity(undefined, new LinkIdentityResolver(fakeDestinations({}), clock));
   const conv = record.layers.CONVERSATIONAL;
-  assert.equal(conv.state, 'NO');
-  assert.equal(conv.prospectPresent, 'NO');
+  assert.equal(conv.state, 'IDENTITY_UNRESOLVED');
+  assert.equal(conv.prospectPresent, 'UNRESOLVED');
   assert.equal(conv.prospectMatchEvidence, undefined);
+  assert.match(conv.error ?? '', /Could not prove whether "Ls tiling & Patios" is the prospect/);
+  assert.equal(record.status, 'INCOMPLETE');
   assert.equal(conv.identityResolutions?.length, 1);
   const r = conv.identityResolutions![0]!;
   assert.equal(r.candidateName, 'Ls tiling & Patios');
@@ -300,7 +302,7 @@ test('engine: tracking link resolving to the prospect -> CONFIRMED_PROSPECT, Con
   assert.equal(stored.layers.CONVERSATIONAL.prospectMatchEvidence?.[0]?.matchedBy, 'resolved_destination');
 });
 
-test('engine: link resolving elsewhere -> CONFIRMED_OTHER_BUSINESS, stays NO; failure -> UNRESOLVED, stays NO', async () => {
+test('engine: link resolving elsewhere -> CONFIRMED_OTHER_BUSINESS, NO; failure -> UNRESOLVED, non-conclusive', async () => {
   const other = 'https://different-tiler.co.uk/';
   const a = await runWithIdentity(other, new LinkIdentityResolver(fakeDestinations({ [other]: lands(other, other) }), clock));
   assert.equal(a.record.layers.CONVERSATIONAL.state, 'NO');
@@ -311,24 +313,125 @@ test('engine: link resolving elsewhere -> CONFIRMED_OTHER_BUSINESS, stays NO; fa
   const blocked = 'https://trk.example/blocked';
   const b = await runWithIdentity(blocked, new LinkIdentityResolver(fakeDestinations({ [blocked]: { ok: false, sourceUrl: blocked, error: 'net::ERR_TUNNEL_CONNECTION_FAILED', hops: [] } }), clock));
   const conv = b.record.layers.CONVERSATIONAL;
-  assert.equal(conv.state, 'NO', 'the layer verdict is from the visible response; the failed lookup adds no evidence either way');
+  assert.equal(conv.state, 'IDENTITY_UNRESOLVED', 'we can prove neither that it is the prospect nor that it is not');
   assert.equal(conv.identityResolutions?.[0]?.resolutionState, 'UNRESOLVED');
   assert.equal(conv.identityResolutions?.[0]?.resolutionMethod, 'fetch_failed');
   assert.match(conv.identityResolutions?.[0]?.error ?? '', /ERR_TUNNEL/);
-  assert.equal(b.record.status, 'COMPLETE', 'an identity lookup failure is not a ChatGPT failure and does not make the audit INCOMPLETE');
+  assert.equal(b.record.status, 'INCOMPLETE', 'fail closed: an unresolved plausible prospect never becomes a NO');
+  assert.equal(a.record.status, 'COMPLETE', 'a proven other business does not block completion');
 });
 
 test('engine: reanalyseRecordWithIdentity re-runs resolution and a later provider can change the outcome', async () => {
   const src = 'https://trk.example/ls';
   const first = await runWithIdentity(src, new LinkIdentityResolver(fakeDestinations({ [src]: { ok: false, sourceUrl: src, error: 'Timed out after 6000ms', hops: [] } }), clock));
-  assert.equal(first.record.layers.CONVERSATIONAL.state, 'NO');
+  assert.equal(first.record.layers.CONVERSATIONAL.state, 'IDENTITY_UNRESOLVED');
+  assert.equal(first.record.status, 'INCOMPLETE');
   // Later, the destination is reachable (or an external identity provider answers): the stored audit is re-checked.
   const again = await reanalyseRecordWithIdentity(first.record, new LinkIdentityResolver(fakeDestinations({ [src]: lands(src, 'https://ls-tiling.co.uk/') }), clock));
   assert.equal(again.layers.CONVERSATIONAL.state, 'YES');
+  assert.equal(again.status, 'COMPLETE');
   assert.equal(again.layers.CONVERSATIONAL.identityResolutions?.[0]?.resolutionState, 'CONFIRMED_PROSPECT');
-  // The null provider (identity checks disabled) leaves everything UNRESOLVED.
+  // The null provider (identity checks disabled) leaves everything UNRESOLVED, hence non-conclusive.
   const off = await reanalyseRecordWithIdentity(first.record, new NullIdentityProvider());
-  assert.equal(off.layers.CONVERSATIONAL.state, 'NO');
+  assert.equal(off.layers.CONVERSATIONAL.state, 'IDENTITY_UNRESOLVED');
+  assert.equal(off.status, 'INCOMPLETE');
   assert.equal(off.layers.CONVERSATIONAL.identityResolutions?.[0]?.resolutionState, 'UNRESOLVED');
   assert.equal(ambiguousMentions(off.layers.CONVERSATIONAL, LS).length, 1);
+});
+
+// ---------------------------------------------------------------------------------------------
+// Verdict invariant: an UNRESOLVED plausible prospect can never become a false NO.
+// ---------------------------------------------------------------------------------------------
+import { summarise } from '../src/audit/engine.ts';
+import { ensurePublicReport, isPubliclyAvailable } from '../src/public/tracking.ts';
+
+function conversationalWithoutAmbiguity() {
+  return {
+    text: 'Tilers people mention locally:\nSDB Tiling – Aylesbury.\nLimartra Tiling and Restoration – Aylesbury.',
+    html: '<p>Tilers people mention locally:</p><ul><li><p><strong>SDB Tiling</strong> – Aylesbury.</p></li><li><p><strong>Limartra Tiling and Restoration</strong> – Aylesbury.</p></li></ul>',
+    links: [],
+  };
+}
+
+test('invariant A. ambiguous candidate + CONFIRMED_PROSPECT => YES / COMPLETE', async () => {
+  const src = 'https://ls-tiling.co.uk/';
+  const { record } = await runWithIdentity(src, new LinkIdentityResolver(fakeDestinations({ [src]: lands(src, src) }), clock));
+  assert.equal(record.layers.CONVERSATIONAL.state, 'YES');
+  assert.equal(record.layers.CONVERSATIONAL.prospectPresent, 'YES');
+  assert.equal(record.status, 'COMPLETE');
+  assert.ok(record.publicReport, 'a complete audit gets its report');
+  assert.match(record.outreachMessage ?? '', /recommended you when we described a real customer problem/);
+});
+
+test('invariant B. ambiguous candidate + CONFIRMED_OTHER_BUSINESS => NO / COMPLETE', async () => {
+  const src = 'https://different-tiler.co.uk/';
+  const { record } = await runWithIdentity(src, new LinkIdentityResolver(fakeDestinations({ [src]: lands(src, src) }), clock));
+  assert.equal(record.layers.CONVERSATIONAL.state, 'NO');
+  assert.equal(record.layers.CONVERSATIONAL.prospectPresent, 'NO');
+  assert.equal(record.layers.CONVERSATIONAL.identityResolutions?.[0]?.resolutionState, 'CONFIRMED_OTHER_BUSINESS');
+  assert.equal(record.status, 'COMPLETE');
+  assert.match(record.outreachMessage ?? '', /LS-Tiling didn't appear at any point/, 'a proven-different business legitimately supports the NO claim');
+});
+
+test('invariant C. ambiguous candidate + UNRESOLVED (no link) => IDENTITY_UNRESOLVED / INCOMPLETE', async () => {
+  const { record } = await runWithIdentity(undefined, new LinkIdentityResolver(fakeDestinations({}), clock));
+  assert.equal(record.layers.CONVERSATIONAL.state, 'IDENTITY_UNRESOLVED');
+  assert.notEqual(record.layers.CONVERSATIONAL.state, 'NO');
+  assert.equal(record.layers.CONVERSATIONAL.prospectPresent, 'UNRESOLVED');
+  assert.equal(record.status, 'INCOMPLETE');
+  assert.match(record.incompleteReason ?? '', /CONVERSATIONAL: IDENTITY_UNRESOLVED/);
+  assert.match(record.incompleteReason ?? '', /Ls tiling & Patios/);
+  // The other layers are unaffected and still conclusive.
+  assert.equal(record.layers.VISIBLE.state, 'NO');
+  assert.equal(record.layers.RECOMMENDED.state, 'NO');
+});
+
+test('invariant D. ambiguous candidate + network timeout / bot block => IDENTITY_UNRESOLVED / INCOMPLETE', async () => {
+  const src = 'https://trk.example/ls';
+  for (const error of ['Timed out after 6000ms', 'HTTP 403', 'ENOTFOUND', 'Destination is a private or local address', 'Too many redirects']) {
+    const { record } = await runWithIdentity(src, new LinkIdentityResolver(fakeDestinations({ [src]: { ok: false, sourceUrl: src, error, hops: [] } }), clock));
+    assert.equal(record.layers.CONVERSATIONAL.state, 'IDENTITY_UNRESOLVED', error);
+    assert.equal(record.status, 'INCOMPLETE', error);
+    assert.equal(record.layers.CONVERSATIONAL.identityResolutions?.[0]?.error, error);
+  }
+  // An intermediary landing (maps / directory) is UNRESOLVED as well.
+  const maps = 'https://maps.google.com/?cid=1';
+  const { record } = await runWithIdentity(maps, new LinkIdentityResolver(fakeDestinations({ [maps]: lands(maps, maps) }), clock));
+  assert.equal(record.layers.CONVERSATIONAL.state, 'IDENTITY_UNRESOLVED');
+  assert.equal(record.status, 'INCOMPLETE');
+});
+
+test('invariant E. no ambiguous candidate + prospect absent => NO / COMPLETE (ordinary competitors need no resolution)', async () => {
+  const dir = await mkdtemp(path.join(process.env.TMPDIR ?? os.tmpdir(), 'ail-identity-e-'));
+  const store = new AuditStore(path.join(dir, 'audits'));
+  const destinations = fakeDestinations({});
+  const provider = new MockChatGptProvider({ conversations: [{ answers: [visibleResponse] }, { answers: [recommendedResponse] }, { answers: [conversationalTurn1, conversationalWithoutAmbiguity()] }] });
+  const engine = new AuditEngine({ provider, evidence: new EvidenceStore(path.join(dir, 'evidence')), store, fetcher: async () => lsTilingSite, identity: new LinkIdentityResolver(destinations, clock), now: clock });
+  const record = newAuditRecord(LS_TILING, provider.name, clock());
+  await store.save(record);
+  await engine.run(record);
+  for (const l of ['VISIBLE', 'RECOMMENDED', 'CONVERSATIONAL'] as const) {
+    assert.equal(record.layers[l].state, 'NO', l);
+    assert.deepEqual(record.layers[l].identityResolutions, [], `${l}: nothing plausible to resolve`);
+  }
+  assert.deepEqual(destinations.calls, [], 'no network requests for ordinary competitors');
+  assert.equal(record.status, 'COMPLETE');
+  assert.deepEqual([...record.layers.CONVERSATIONAL.businessesSurfaced].sort(), ['Limartra Tiling and Restoration', 'SDB Tiling']);
+});
+
+test('invariant F. unresolved identity never produces outreach saying the prospect did not appear', async () => {
+  const { record } = await runWithIdentity(undefined, new LinkIdentityResolver(fakeDestinations({}), clock));
+  assert.equal(record.status, 'INCOMPLETE');
+  assert.equal(record.outreachMessage, undefined);
+  const stored = reanalyseRecord(record);
+  assert.equal(stored.outreachMessage, undefined, 'reanalysis does not manufacture a claim either');
+  assert.equal(stored.layers.CONVERSATIONAL.state, 'IDENTITY_UNRESOLVED');
+});
+
+test('invariant G. unresolved identity never creates a public prospect report', async () => {
+  const { record } = await runWithIdentity(undefined, new LinkIdentityResolver(fakeDestinations({}), clock));
+  assert.equal(record.publicReport, undefined);
+  assert.equal(ensurePublicReport(record), undefined);
+  assert.equal(isPubliclyAvailable(record), false);
+  assert.equal(summarise(record, 'https://reports.example.test').publicUrl, undefined);
 });

@@ -49,8 +49,10 @@ POST /api/chatgpt/connect   opens the browser for a one-time normal sign-in
 GET  /evidence/:id/:file    screenshot PNGs
 ```
 
-States: `YES`, `NO`, `NOT_TESTED`, `ERROR`, `SIGN_IN_REQUIRED`. Audit status: `COMPLETE`,
-`INCOMPLETE` (any layer not YES/NO; no outreach message is generated), `SIGN_IN_REQUIRED`.
+States: `YES`, `NO`, `NOT_TESTED`, `ERROR`, `SIGN_IN_REQUIRED`, `IDENTITY_UNRESOLVED` (a surfaced
+result could plausibly be the prospect but could not be proven either way; never reported as NO).
+Audit status: `COMPLETE`, `INCOMPLETE` (any layer not YES/NO; no outreach message and no public
+report), `SIGN_IN_REQUIRED`.
 
 ### What YES means
 
@@ -110,8 +112,10 @@ candidate that carries the prospect's identity tokens without being an accepted 
 3. no link: `UNRESOLVED`.
 
 Outcomes: `CONFIRMED_PROSPECT` (only this can make a layer YES, recorded as `resolved_destination`
-evidence), `CONFIRMED_OTHER_BUSINESS` (a different business domain), `UNRESOLVED` (no link, an
-intermediary, or a network failure). `UNRESOLVED` never becomes YES and never counts as NO evidence.
+evidence), `CONFIRMED_OTHER_BUSINESS` (a different business domain; the layer may legitimately be NO),
+`UNRESOLVED` (no link, an intermediary, or a network failure). `UNRESOLVED` never becomes YES and
+never becomes NO: the layer is `IDENTITY_UNRESOLVED` and the audit `INCOMPLETE`. Ordinary competitors
+with no resemblance to the prospect are never resolved and never block completion.
 Each check is stored on the layer in `identityResolutions[]` (candidateName, candidateContext,
 sourceUrl, finalUrl, canonicalUrl, prospectDomain, matchedDomain, resolutionMethod, resolutionState).
 Requests are isolated HTTP fetches; the ChatGPT conversation is never touched.
@@ -152,7 +156,7 @@ If chatgpt.com changes its markup, update `SELECTORS` in `src/chatgpt/playwright
 
 ```bash
 npm run typecheck
-npm test            # 66 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 6 real-browser tests (adapter plumbing against a local DOM double, engagement beacon)
+npm test            # 73 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 6 real-browser tests (adapter plumbing against a local DOM double, engagement beacon)
 npm run build
 ```
 
