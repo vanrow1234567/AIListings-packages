@@ -8,7 +8,7 @@ const log = (m: string) => console.log(`${new Date().toISOString()} ${m}`);
 const port = Number(process.env.PORT ?? 3210);
 const provider = createProvider(log);
 const { evidence, store } = createStores();
-const engine = new AuditEngine({ provider, evidence, store, identity: createIdentityProvider(), log });
+const engine = new AuditEngine({ provider, evidence, store, identity: createIdentityProvider(log), log });
 
 const server = http.createServer(
   createApp({

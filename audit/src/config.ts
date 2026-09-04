@@ -6,6 +6,10 @@ import { AuditStore } from './persistence/store.ts';
 import { HttpDestinationResolver } from './identity/destination.ts';
 import { LinkIdentityResolver } from './identity/resolver.ts';
 import type { IdentityProvider } from './identity/provider.ts';
+import { ChainedIdentityProvider } from './identity/chain.ts';
+import { LocalBusinessIdentityProvider } from './identity/localBusiness.ts';
+import { DataForSeoMapsProvider } from './identity/dataforseo.ts';
+import { prospectFactsSource } from './identity/prospectFacts.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** Project root (audit/) regardless of running from src/ or dist/. */
@@ -26,10 +30,32 @@ export function createProvider(log: (m: string) => void): PlaywrightChatGptProvi
   });
 }
 
-export function createIdentityProvider(): IdentityProvider {
-  return new LinkIdentityResolver(
-    new HttpDestinationResolver({ timeoutMs: Number(process.env.AUDIT_IDENTITY_TIMEOUT_MS ?? 6000) }),
-  );
+/**
+ * Identity chain: captured-link resolution first; a Google Business / Maps lookup only for
+ * ambiguous candidates the link resolver left UNRESOLVED, and only when a vendor is configured
+ * (AUDIT_LOCAL_BUSINESS_PROVIDER=dataforseo with DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD).
+ */
+export function createIdentityProvider(log: (m: string) => void = () => undefined): IdentityProvider {
+  const link = new LinkIdentityResolver(new HttpDestinationResolver({ timeoutMs: Number(process.env.AUDIT_IDENTITY_TIMEOUT_MS ?? 6000) }));
+  const vendor = (process.env.AUDIT_LOCAL_BUSINESS_PROVIDER ?? '').toLowerCase();
+  if (vendor === 'dataforseo') {
+    const login = process.env.DATAFORSEO_LOGIN;
+    const password = process.env.DATAFORSEO_PASSWORD;
+    if (login && password) {
+      const lookup = new DataForSeoMapsProvider({
+        login,
+        password,
+        ...(process.env.DATAFORSEO_ENDPOINT ? { endpoint: process.env.DATAFORSEO_ENDPOINT } : {}),
+        ...(process.env.DATAFORSEO_LOCATION_NAME ? { locationName: process.env.DATAFORSEO_LOCATION_NAME } : {}),
+      });
+      log('[identity] link resolver + DataForSEO Google Maps fallback enabled');
+      return new ChainedIdentityProvider([link, new LocalBusinessIdentityProvider(lookup, prospectFactsSource())]);
+    }
+    log('[identity] AUDIT_LOCAL_BUSINESS_PROVIDER=dataforseo but DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD missing; link resolver only');
+  } else if (vendor) {
+    log(`[identity] unknown AUDIT_LOCAL_BUSINESS_PROVIDER "${vendor}"; link resolver only`);
+  }
+  return link;
 }
 
 export function createStores(): { evidence: EvidenceStore; store: AuditStore } {

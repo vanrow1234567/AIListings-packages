@@ -25,7 +25,7 @@ async function main(): Promise<void> {
         process.exitCode = 2;
         return;
       }
-      const engine = new AuditEngine({ provider, evidence, store, identity: createIdentityProvider(), log });
+      const engine = new AuditEngine({ provider, evidence, store, identity: createIdentityProvider(log), log });
       const record = newAuditRecord({ business_name, website, location }, provider.name);
       await store.save(record);
       await engine.run(record);
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
         process.exitCode = 2;
         return;
       }
-      await reanalyseRecordWithIdentity(record, createIdentityProvider());
+      await reanalyseRecordWithIdentity(record, createIdentityProvider(log));
       await store.save(record);
       console.log(JSON.stringify(summarise(record), null, 2));
       return;

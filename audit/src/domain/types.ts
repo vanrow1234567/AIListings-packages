@@ -51,6 +51,43 @@ export interface Prospect {
   location: string;
   /** Words describing what the prospect does (e.g. "tiling"). Never identity evidence on their own. */
   serviceTerms?: string[];
+  /** Facts extracted independently from the prospect's own website; source of truth for identity checks. */
+  identityFacts?: ProspectIdentityFacts;
+}
+
+/** What the prospect's supplied website says about itself. Nothing here is inferred. */
+export interface ProspectIdentityFacts {
+  /** Where the facts came from: the fetched website, or nothing (fetch failed / no website). */
+  source: 'website' | 'none';
+  canonicalDomain: string;
+  businessName?: string;
+  /** Normalised UK phone numbers (digits, national format e.g. 07700900123). */
+  phones: string[];
+  streetAddress?: string;
+  locality?: string;
+  postcode?: string;
+  /** schema.org types found in JSON-LD, e.g. ["LocalBusiness", "HomeAndConstructionBusiness"]. */
+  schemaTypes: string[];
+  fetchedAt: string;
+  error?: string;
+}
+
+/** Evidence recorded when a public local-business / Google Business / Maps lookup was used. */
+export interface LocalBusinessLookupEvidence {
+  lookupQuery: string;
+  provider: string;
+  returnedBusinessName?: string;
+  returnedWebsite?: string;
+  returnedPhone?: string;
+  returnedAddress?: string;
+  returnedLocation?: string;
+  providerBusinessId?: string;
+  prospectPhone?: string[];
+  prospectAddress?: string;
+  /** Which fields proved (or disproved) identity: website | phone | address. Empty when nothing did. */
+  matchedFields: string[];
+  /** Listings the provider returned whose name did not correspond to the candidate (ignored). */
+  ignoredListings?: number;
 }
 
 /** What the business sells, derived from name + website + location. */
@@ -153,7 +190,11 @@ export type ResolutionMethod =
   | 'canonical' // rel=canonical on the final page named the host
   | 'no_link' // nothing to resolve against
   | 'fetch_failed' // network error, timeout, blocked destination
-  | 'external_provider'; // reserved for GBP / Apify / other identity providers
+  | 'local_business_website' // Google Business / Maps listing website compared with the prospect domain
+  | 'local_business_phone' // listing phone matched a phone taken independently from the prospect website
+  | 'local_business_address' // listing address uniquely matched the prospect website address
+  | 'local_business_lookup' // lookup ran but proved nothing (no match / conflict / failure)
+  | 'external_provider'; // reserved for other identity providers
 
 export interface IdentityResolution {
   candidateName: string;
@@ -170,6 +211,10 @@ export interface IdentityResolution {
   provider: string;
   error?: string;
   resolvedAt: string;
+  /** Present when a local-business lookup was consulted. */
+  lookup?: LocalBusinessLookupEvidence;
+  /** Earlier providers in the chain that could not resolve this candidate. */
+  previousAttempts?: { provider: string; resolutionMethod: ResolutionMethod; resolutionState: ResolutionState; error?: string }[];
 }
 
 export interface LayerResult {

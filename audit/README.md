@@ -120,8 +120,38 @@ Each check is stored on the layer in `identityResolutions[]` (candidateName, can
 sourceUrl, finalUrl, canonicalUrl, prospectDomain, matchedDomain, resolutionMethod, resolutionState).
 Requests are isolated HTTP fetches; the ChatGPT conversation is never touched.
 
-`IdentityProvider` in `src/identity/provider.ts` is the seam for a later external provider (Google
-Business Profile, Apify, a data vendor). `AUDIT_IDENTITY_TIMEOUT_MS` (6000) bounds each hop.
+`IdentityProvider` in `src/identity/provider.ts` is the seam; providers run as a chain
+(`src/identity/chain.ts`) and stop at the first that resolves either way.
+
+**Google Business / Maps fallback.** When the link resolver leaves an ambiguous candidate `UNRESOLVED`
+(the real Azure case: a map-card name with no href), `LocalBusinessIdentityProvider` asks a
+`LocalBusinessLookupProvider` (vendor seam, `src/identity/localBusiness.ts`) for listings matching the
+candidate and compares them with facts taken independently from the prospect's own website
+(`src/identity/prospectFacts.ts`: canonical domain, JSON-LD LocalBusiness name / telephone / address,
+`tel:` links, visible UK phone numbers, postcode; stored on the record as `prospect.identityFacts`).
+Rules: listing website domain equals the prospect domain → `CONFIRMED_PROSPECT`; listing website is
+another business → `CONFIRMED_OTHER_BUSINESS`; no usable website but the listing phone (or postcode plus
+first address line) matches the prospect website → `CONFIRMED_PROSPECT`; name or location similarity
+alone → never; conflicting evidence, no corresponding listing, or any provider/network/API failure →
+`UNRESOLVED` (layer `IDENTITY_UNRESOLVED`, audit `INCOMPLETE`). Ordinary competitors are never looked
+up, and nothing already resolved by the link resolver is looked up. Every lookup stores `lookup`
+evidence (query, provider, returned name / website / phone / address / location / business id, prospect
+phone / address, matched fields) and the earlier link attempt in `previousAttempts`.
+
+One vendor adapter is included, DataForSEO Google Maps (`src/identity/dataforseo.ts`, live endpoint
+`POST /v3/serp/google/maps/live/advanced`). It has not been validated against the live API from the
+development environment. To enable it on the audit host:
+
+```
+AUDIT_LOCAL_BUSINESS_PROVIDER=dataforseo
+DATAFORSEO_LOGIN=<api login>
+DATAFORSEO_PASSWORD=<api password>
+DATAFORSEO_LOCATION_NAME=United Kingdom      # optional; the town is carried in the keyword
+DATAFORSEO_ENDPOINT=<override>              # optional
+```
+
+Without these the chain is the link resolver alone. `AUDIT_IDENTITY_TIMEOUT_MS` (6000) bounds each
+link hop.
 
 ### Re-interpreting a stored audit
 
@@ -156,7 +186,7 @@ If chatgpt.com changes its markup, update `SELECTORS` in `src/chatgpt/playwright
 
 ```bash
 npm run typecheck
-npm test            # 73 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 6 real-browser tests (adapter plumbing against a local DOM double, engagement beacon)
+npm test            # 86 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 6 real-browser tests (adapter plumbing against a local DOM double, engagement beacon)
 npm run build
 ```
 
