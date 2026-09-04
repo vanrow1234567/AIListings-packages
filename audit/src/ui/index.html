@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIListings — AI Visibility Audit</title>
+<style>
+  :root { --ink:#111827; --muted:#6b7280; --line:#e5e7eb; --ok:#15803d; --no:#b91c1c; --warn:#b45309; --accent:#1d4ed8; }
+  body { font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: var(--ink); margin: 0; background:#f8fafc; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  form, .card { background:#fff; border:1px solid var(--line); border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+  label { display:block; font-weight:600; margin: 12px 0 4px; }
+  input { width:100%; box-sizing:border-box; padding: 10px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:15px; }
+  button { margin-top:16px; padding: 12px 18px; border:0; border-radius:8px; background: var(--accent); color:#fff; font-weight:700; font-size:15px; cursor:pointer; }
+  button.secondary { background:#fff; color: var(--accent); border:1px solid var(--accent); margin-left: 8px; }
+  button[disabled] { opacity:.5; cursor:default; }
+  .steps li { list-style:none; padding: 4px 0; color: var(--muted); }
+  .steps li.active { color: var(--ink); font-weight:600; }
+  .steps li.done { color: var(--ok); }
+  .steps { padding-left: 0; margin: 0; }
+  .layers { display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .layer { border:1px solid var(--line); border-radius: 8px; padding: 14px; text-align:center; }
+  .layer h3 { margin:0 0 6px; font-size: 13px; letter-spacing:.06em; color: var(--muted); }
+  .state { font-size: 22px; font-weight: 800; }
+  .YES { color: var(--ok);} .NO { color: var(--no);} .ERROR, .SIGN_IN_REQUIRED, .NOT_TESTED { color: var(--warn); }
+  h2 { font-size: 13px; letter-spacing:.06em; color: var(--muted); margin: 22px 0 8px; }
+  ol { margin: 0; padding-left: 22px; }
+  blockquote { margin:0; padding: 12px 16px; background:#f1f5f9; border-left: 4px solid var(--accent); border-radius: 6px; white-space: pre-wrap; }
+  .warn { background:#fffbeb; border:1px solid #fcd34d; color:#92400e; padding: 10px 14px; border-radius: 8px; margin-top: 12px; }
+  .shots img { width:100%; border:1px solid var(--line); border-radius: 8px; margin: 8px 0; }
+  details { margin-top: 8px; } summary { cursor:pointer; color: var(--muted); }
+  pre { white-space: pre-wrap; font-size: 12px; background:#f8fafc; padding:10px; border-radius:6px; }
+  .muted { color: var(--muted); font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>AI Visibility Audit</h1>
+  <p class="sub">Measures how the consumer ChatGPT website surfaces a local business at the VISIBLE, RECOMMENDED and CONVERSATIONAL layers.</p>
+
+  <form id="form">
+    <label for="business_name">Business Name</label>
+    <input id="business_name" name="business_name" required placeholder="SPP Roofing">
+    <label for="website">Website</label>
+    <input id="website" name="website" required placeholder="https://www.spproofing.co.uk/">
+    <label for="location">Location</label>
+    <input id="location" name="location" required placeholder="Southampton">
+    <button id="run" type="submit">RUN AI VISIBILITY AUDIT</button>
+    <button id="connect" type="button" class="secondary" hidden>CONNECT CHATGPT</button>
+    <div id="connectMsg" class="muted"></div>
+  </form>
+
+  <section id="progress" class="card" hidden>
+    <ul class="steps" id="steps"></ul>
+  </section>
+
+  <section id="result" class="card" hidden></section>
+</main>
+<script>
+const STEPS = ['Understanding business','Testing Visible','Testing Recommended','Testing Conversational','Identifying competitors','Preparing message'];
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function renderSteps(record) {
+  $('#steps').innerHTML = STEPS.map((s) => {
+    const cls = record.completedSteps.includes(s) ? 'done' : record.currentStep === s ? 'active' : '';
+    return `<li class="${cls}">${cls === 'done' ? '✓' : cls === 'active' ? '…' : '·'} ${esc(s)}</li>`;
+  }).join('');
+}
+
+function layer(name, state) {
+  return `<div class="layer"><h3>${name}</h3><div class="state ${esc(state)}">${esc(state)}</div></div>`;
+}
+
+function renderResult(data) {
+  const s = data.summary, r = data.record;
+  const comps = s.topCompetitors.length
+    ? `<ol>${s.topCompetitors.map((c) => `<li>${esc(c)}</li>`).join('')}</ol>`
+    : `<p class="muted">No genuine competitors were identified in the ChatGPT responses.</p>`;
+  const shots = (label, list) => list.length
+    ? `<h2>${label}</h2><div class="shots">${list.map((p) => `<a href="${esc(p)}" target="_blank"><img src="${esc(p)}" alt="${esc(label)}"></a>`).join('')}</div>` : '';
+  const turns = (lr) => lr.turns.map((t) => `<p><b>Prompt:</b> ${esc(t.prompt)}</p><pre>${esc(t.response.text)}</pre>${t.conversationUrl ? `<p class="muted">${esc(t.conversationUrl)} · ${esc(t.answeredAt)}</p>` : ''}`).join('') + (lr.error ? `<p class="warn">${esc(lr.error)}</p>` : '');
+  $('#result').innerHTML = `
+    <div class="layers">${layer('VISIBLE', s.VISIBLE)}${layer('RECOMMENDED', s.RECOMMENDED)}${layer('CONVERSATIONAL', s.CONVERSATIONAL)}</div>
+    <p class="muted" style="margin-top:10px">${esc(s.prospect.name)} · ${esc(s.prospect.location)} · ${esc(s.prospect.service)} · status <b>${esc(s.status)}</b> · provider ${esc(r.provider)}</p>
+    ${s.incompleteReason ? `<div class="warn">${esc(s.incompleteReason)}</div>` : ''}
+    <h2>TOP AI COMPETITORS</h2>${comps}
+    <h2>OUTREACH MESSAGE</h2>${s.outreachMessage ? `<blockquote>${esc(s.outreachMessage)}</blockquote>` : '<p class="muted">Not generated: the audit is incomplete, so no definitive prospect claims are made.</p>'}
+    <h2>EVIDENCE</h2>
+    ${shots('Visible screenshot', s.evidence.visibleScreenshots)}
+    ${shots('Recommended screenshot', s.evidence.recommendedScreenshots)}
+    ${shots('Conversational screenshot(s)', s.evidence.conversationalScreenshots)}
+    ${shots('Brand diagnostic (separate, not counted)', s.evidence.brandDiagnosticScreenshots)}
+    <details><summary>Prompts and displayed responses</summary>
+      <h2>VISIBLE</h2>${turns(r.layers.VISIBLE)}
+      <h2>RECOMMENDED</h2>${turns(r.layers.RECOMMENDED)}
+      <h2>CONVERSATIONAL</h2>${turns(r.layers.CONVERSATIONAL)}
+      ${r.brandDiagnostic ? `<h2>BRAND DIAGNOSTIC (not counted)</h2><p><b>Prompt:</b> ${esc(r.brandDiagnostic.prompt)}</p><p>State: ${esc(r.brandDiagnostic.state)}</p>` : ''}
+    </details>`;
+  $('#result').hidden = false;
+  if (s.status === 'SIGN_IN_REQUIRED') showConnect('ChatGPT asked for a sign-in. Click Connect ChatGPT, sign in normally in the browser window that opens, then run the audit again.');
+}
+
+function showConnect(msg) {
+  $('#connect').hidden = false;
+  $('#connectMsg').textContent = msg || '';
+}
+
+async function poll(id) {
+  const res = await fetch(`/api/audits/${id}`);
+  const data = await res.json();
+  renderSteps(data.record);
+  if (['COMPLETE','INCOMPLETE','SIGN_IN_REQUIRED'].includes(data.summary.status)) {
+    $('#run').disabled = false;
+    renderResult(data);
+    return;
+  }
+  setTimeout(() => poll(id), 1500);
+}
+
+$('#form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = Object.fromEntries(new FormData(e.target).entries());
+  $('#run').disabled = true;
+  $('#result').hidden = true;
+  $('#progress').hidden = false;
+  const res = await fetch('/api/audits', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) { alert(data.error); $('#run').disabled = false; return; }
+  history.replaceState(null, '', `#${data.id}`);
+  poll(data.id);
+});
+
+$('#connect').addEventListener('click', async () => {
+  $('#connect').disabled = true;
+  $('#connectMsg').textContent = 'A browser window is opening. Sign in to ChatGPT normally; this page will update when a signed-in session is detected.';
+  await fetch('/api/chatgpt/connect', { method: 'POST' });
+  const check = async () => {
+    const st = await (await fetch('/api/chatgpt/status')).json();
+    if (st.connect.running) return setTimeout(check, 2000);
+    $('#connect').disabled = false;
+    if (st.connect.result) { $('#connectMsg').textContent = 'ChatGPT connected. You can run the audit now.'; $('#connect').hidden = true; }
+    else $('#connectMsg').textContent = 'No signed-in session was detected. Try Connect ChatGPT again.';
+  };
+  check();
+});
+
+if (location.hash.length > 1) { $('#progress').hidden = false; poll(location.hash.slice(1)); }
+</script>
+</body>
+</html>

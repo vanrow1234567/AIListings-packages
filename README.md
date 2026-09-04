@@ -1,5 +1,8 @@
 # AI Listings — Packages
 
+> **`audit/`** contains the AI Visibility Lead Audit MVP (Node/TypeScript app that measures a business's
+> VISIBLE / RECOMMENDED / CONVERSATIONAL presence in the consumer ChatGPT website). See `audit/README.md`.
+
 Static pricing + agreement flow for AI Listings, deployed at **packages.ailistings.co.uk**.
 
 This is an MVP (Phase 1): no backend, no Stripe API. Three Stripe **Payment Links** collect
