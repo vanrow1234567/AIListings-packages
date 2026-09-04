@@ -16,8 +16,12 @@ export interface DataForSeoOptions {
  * Needs DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD. Throws on any transport, auth or API error so
  * the identity provider records UNRESOLVED. Not validated against the live API in this
  * environment: the parser reads the documented fields defensively (title, url/domain, phone,
- * address, address_info.city, place_id / cid).
+ * address, address_info.city, place_id / cid) and accepts only the documented item types
+ * (maps_search, maps_paid_item).
  */
+/** Documented result item types for Google Maps live advanced: organic listings and paid listings. */
+const MAPS_ITEM_TYPES = new Set(['maps_search', 'maps_paid_item']);
+
 export class DataForSeoMapsProvider implements LocalBusinessLookupProvider {
   readonly name = 'dataforseo-google-maps';
   private readonly opts: Required<Omit<DataForSeoOptions, 'fetchImpl'>> & { fetchImpl: typeof fetch };
@@ -61,7 +65,7 @@ export class DataForSeoMapsProvider implements LocalBusinessLookupProvider {
       if (task.status_code && task.status_code >= 40000) throw new Error(`DataForSEO task ${task.status_code}: ${task.status_message ?? 'error'}`);
       const items = task.result?.flatMap((r) => r.items ?? []) ?? [];
       return items
-        .filter((i) => typeof i.title === 'string' && (i.type === undefined || i.type === 'maps_search_element' || i.type === 'maps_paid_item'))
+        .filter((i) => typeof i.title === 'string' && typeof i.type === 'string' && MAPS_ITEM_TYPES.has(i.type))
         .map((i) => {
           const info = (i.address_info && typeof i.address_info === 'object' ? i.address_info : {}) as Record<string, unknown>;
           const listing: LocalBusinessListing = { name: String(i.title), source: this.name };

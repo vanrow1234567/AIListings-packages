@@ -259,25 +259,110 @@ test('prospect facts source: fetch failure yields source none and caches on the 
 });
 
 // ---- DataForSEO adapter (parser + failure handling, injected fetch) ----------------------
-test('DataForSEO adapter: parses maps items, sends basic auth, throws on API errors', async () => {
+/** Realistic DataForSEO Google Maps live/advanced response (documented item shape, type "maps_search"). */
+const DATAFORSEO_RESPONSE = {
+  version: '0.1.20250101',
+  status_code: 20000,
+  status_message: 'Ok.',
+  tasks: [{
+    id: '09041234-1535-0066-0000-abcdef123456',
+    status_code: 20000,
+    status_message: 'Ok.',
+    result: [{
+      keyword: 'Ls tiling & Patios Wendover',
+      type: 'maps',
+      se_domain: 'google.co.uk',
+      location_code: 2826,
+      language_code: 'en',
+      check_url: 'https://www.google.co.uk/maps/search/Ls+tiling+%26+Patios+Wendover/',
+      items_count: 4,
+      items: [
+        {
+          type: 'maps_search',
+          rank_group: 1,
+          rank_absolute: 1,
+          domain: 'www.ls-tiling.co.uk',
+          title: 'LS Tiling & Patios',
+          url: 'https://www.ls-tiling.co.uk/',
+          rating: { rating_type: 'Max5', value: 5, votes_count: 12 },
+          category: 'Tiling contractor',
+          phone: '+44 7700 900123',
+          address: '12 Pound St, Wendover, Aylesbury HP22 6EJ',
+          address_info: { borough: null, address: '12 Pound St', city: 'Wendover', zip: 'HP22 6EJ', region: 'England', country_code: 'GB' },
+          place_id: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+          cid: '10281119596374313554',
+          latitude: 51.7607,
+          longitude: -0.7435,
+        },
+        {
+          type: 'maps_search',
+          rank_group: 2,
+          rank_absolute: 2,
+          domain: 'sdbtiling.co.uk',
+          title: 'SDB Tiling',
+          url: null,
+          category: 'Tiling contractor',
+          phone: null,
+          address: 'Aylesbury HP20 1AA',
+          address_info: { address: null, city: 'Aylesbury', zip: 'HP20 1AA', region: 'England', country_code: 'GB' },
+          place_id: 'ChIJsdb000000000000000000000',
+          cid: '20281119596374313555',
+        },
+        { type: 'local_pack', rank_absolute: 3, title: 'Unrelated organic pack item', domain: 'example.org' },
+        { type: 'people_also_search', title: 'Tilers near me' },
+      ],
+    }],
+  }],
+};
+const Q: LocalBusinessQuery = { candidateName: 'Ls tiling & Patios', candidateContext: REAL_CONTEXT, prospectName: 'LS-Tiling', prospectDomain: 'ls-tiling.co.uk', prospectLocation: 'Wendover' };
+const respond = (body: unknown) => (async () => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } })) as typeof fetch;
+
+test('DataForSEO adapter: a normal maps_search item is parsed into a LocalBusinessListing', async () => {
+  const p = new DataForSeoMapsProvider({ login: 'user', password: 'pass', fetchImpl: respond(DATAFORSEO_RESPONSE) });
+  const items = await p.search(Q);
+  assert.deepEqual(items[0], {
+    name: 'LS Tiling & Patios',
+    source: 'dataforseo-google-maps',
+    website: 'https://www.ls-tiling.co.uk/',
+    phone: '+44 7700 900123',
+    address: '12 Pound St, Wendover, Aylesbury HP22 6EJ',
+    locality: 'Wendover',
+    providerBusinessId: 'ChIJN1t_tDeuEmsRUsoyG83frY4',
+  });
+  // Null url with a domain falls back to the domain; null phone is omitted rather than stringified.
+  assert.deepEqual(items[1], { name: 'SDB Tiling', source: 'dataforseo-google-maps', website: 'https://sdbtiling.co.uk', address: 'Aylesbury HP20 1AA', locality: 'Aylesbury', providerBusinessId: 'ChIJsdb000000000000000000000' });
+  // The parsed listing drives the identity rules exactly as a scripted listing does.
+  const r = await new LocalBusinessIdentityProvider(p, factsOf(LS_FACTS), clock).resolve(candidate(), LS);
+  assert.equal(r.resolutionState, 'CONFIRMED_PROSPECT');
+  assert.equal(r.resolutionMethod, 'local_business_website');
+  assert.equal(r.lookup?.providerBusinessId, 'ChIJN1t_tDeuEmsRUsoyG83frY4');
+});
+
+test('DataForSEO adapter: unrelated result types are ignored; only maps_search and maps_paid_item are accepted', async () => {
+  const p = new DataForSeoMapsProvider({ login: 'user', password: 'pass', fetchImpl: respond(DATAFORSEO_RESPONSE) });
+  const items = await p.search(Q);
+  assert.equal(items.length, 2, 'local_pack and people_also_search are dropped');
+  assert.ok(!items.some((i) => /Unrelated|near me/.test(i.name)));
+  const mixed = { status_code: 20000, tasks: [{ status_code: 20000, result: [{ items: [
+    { type: 'maps_paid_item', title: 'Sponsored Tiler', domain: 'sponsored-tiler.co.uk', address_info: { city: 'Aylesbury' } },
+    { type: 'maps_search_element', title: 'Undocumented legacy type is not accepted' },
+    { title: 'No type at all' },
+    { type: 'maps_search', title: 42 },
+    { type: 'organic', title: 'Web result' },
+  ] }] }] };
+  const items2 = await new DataForSeoMapsProvider({ login: 'user', password: 'pass', fetchImpl: respond(mixed) }).search(Q);
+  assert.deepEqual(items2.map((i) => i.name), ['Sponsored Tiler']);
+});
+
+test('DataForSEO adapter: sends basic auth and the documented request body; throws on API errors', async () => {
   const seen: { url: string; init: RequestInit }[] = [];
   const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
     seen.push({ url: String(url), init: init ?? {} });
-    return new Response(JSON.stringify({
-      status_code: 20000,
-      tasks: [{ status_code: 20000, result: [{ items: [
-        { type: 'maps_search_element', title: 'LS Tiling & Patios', url: 'https://www.ls-tiling.co.uk/', domain: 'ls-tiling.co.uk', phone: '+44 7700 900123', address: '12 Pound St, Wendover HP22 6EJ', address_info: { city: 'Wendover', zip: 'HP22 6EJ' }, place_id: 'ChIJabc', cid: '123' },
-        { type: 'maps_search_element', title: 'SDB Tiling', domain: 'sdbtiling.co.uk', address_info: { city: 'Aylesbury' } },
-        { type: 'local_pack', title: 'ignored non-maps item' },
-      ] }] }],
-    }), { status: 200, headers: { 'content-type': 'application/json' } });
+    return new Response(JSON.stringify(DATAFORSEO_RESPONSE), { status: 200, headers: { 'content-type': 'application/json' } });
   }) as typeof fetch;
   const p = new DataForSeoMapsProvider({ login: 'user', password: 'pass', fetchImpl });
-  const q: LocalBusinessQuery = { candidateName: 'Ls tiling & Patios', candidateContext: REAL_CONTEXT, prospectName: 'LS-Tiling', prospectDomain: 'ls-tiling.co.uk', prospectLocation: 'Wendover' };
-  const items = await p.search(q);
-  assert.equal(items.length, 2);
-  assert.deepEqual(items[0], { name: 'LS Tiling & Patios', source: 'dataforseo-google-maps', website: 'https://www.ls-tiling.co.uk/', phone: '+44 7700 900123', address: '12 Pound St, Wendover HP22 6EJ', locality: 'Wendover', providerBusinessId: 'ChIJabc' });
-  assert.equal(items[1]?.website, 'https://sdbtiling.co.uk');
+  const q = Q;
+  await p.search(q);
   assert.equal(seen[0]?.url, 'https://api.dataforseo.com/v3/serp/google/maps/live/advanced');
   assert.equal((seen[0]?.init.headers as Record<string, string>).authorization, `Basic ${Buffer.from('user:pass').toString('base64')}`);
   assert.deepEqual(JSON.parse(String(seen[0]?.init.body)), [{ keyword: 'Ls tiling & Patios Wendover', location_name: 'United Kingdom', language_code: 'en', depth: 20 }]);
