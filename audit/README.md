@@ -95,14 +95,39 @@ Tracking per report, in two separate tiers:
 
 Set `PUBLIC_BASE_URL` to the externally reachable origin (default `http://localhost:<PORT>`).
 
+### Identity resolution
+
+The question is never "does this name look like the prospect?" but "can we prove this surfaced
+result belongs to the prospect?". The supplied website domain is the source of truth. For each
+candidate that carries the prospect's identity tokens without being an accepted variant (e.g.
+"Ls tiling & Patios" vs LS-Tiling), `src/identity/` resolves in this order:
+
+1. existing strong evidence: accepted name variant, the prospect's domain shown as text, or a visible
+   link already on the prospect domain;
+2. a captured link: unwrap known redirectors, follow redirects (bounded hops, short timeout, no private
+   networks), compare the final host with the prospect domain (www / non-www are the same), then
+   `rel=canonical` on the final page unless it is a directory, map or search page;
+3. no link: `UNRESOLVED`.
+
+Outcomes: `CONFIRMED_PROSPECT` (only this can make a layer YES, recorded as `resolved_destination`
+evidence), `CONFIRMED_OTHER_BUSINESS` (a different business domain), `UNRESOLVED` (no link, an
+intermediary, or a network failure). `UNRESOLVED` never becomes YES and never counts as NO evidence.
+Each check is stored on the layer in `identityResolutions[]` (candidateName, candidateContext,
+sourceUrl, finalUrl, canonicalUrl, prospectDomain, matchedDomain, resolutionMethod, resolutionState).
+Requests are isolated HTTP fetches; the ChatGPT conversation is never touched.
+
+`IdentityProvider` in `src/identity/provider.ts` is the seam for a later external provider (Google
+Business Profile, Apify, a data vendor). `AUDIT_IDENTITY_TIMEOUT_MS` (6000) bounds each hop.
+
 ### Re-interpreting a stored audit
 
 ```bash
 npm run reanalyse -- <auditId>     # re-runs extraction, classification, decisions, competitors, outreach
 ```
 
-Uses the responses and screenshots already captured; the browser is not opened. Useful after an
-interpretation fix, and for checking a past verdict against its screenshots.
+Uses the responses and screenshots already captured and re-runs identity resolution on the captured
+links; ChatGPT is never re-run. Useful after an interpretation fix, and for checking a past verdict
+against its screenshots.
 
 ## Modules
 
@@ -127,7 +152,7 @@ If chatgpt.com changes its markup, update `SELECTORS` in `src/chatgpt/playwright
 
 ```bash
 npm run typecheck
-npm test            # 49 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 6 real-browser tests (adapter plumbing against a local DOM double, engagement beacon)
+npm test            # 66 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 6 real-browser tests (adapter plumbing against a local DOM double, engagement beacon)
 npm run build
 ```
 

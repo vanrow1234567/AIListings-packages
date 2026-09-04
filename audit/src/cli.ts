@@ -1,5 +1,5 @@
-import { AuditEngine, newAuditRecord, reanalyseRecord, summarise } from './audit/engine.ts';
-import { createProvider, createStores } from './config.ts';
+import { AuditEngine, newAuditRecord, reanalyseRecordWithIdentity, summarise } from './audit/engine.ts';
+import { createIdentityProvider, createProvider, createStores } from './config.ts';
 
 const log = (m: string) => console.error(`${new Date().toISOString()} ${m}`);
 
@@ -25,7 +25,7 @@ async function main(): Promise<void> {
         process.exitCode = 2;
         return;
       }
-      const engine = new AuditEngine({ provider, evidence, store, log });
+      const engine = new AuditEngine({ provider, evidence, store, identity: createIdentityProvider(), log });
       const record = newAuditRecord({ business_name, website, location }, provider.name);
       await store.save(record);
       await engine.run(record);
@@ -36,11 +36,11 @@ async function main(): Promise<void> {
       const [id] = args;
       const record = id ? await store.get(id) : undefined;
       if (!record) {
-        console.error('usage: reanalyse <auditId>   (re-interprets the stored responses; no browser)');
+        console.error('usage: reanalyse <auditId>   (re-interprets the stored responses and re-checks link identity; ChatGPT is not re-run)');
         process.exitCode = 2;
         return;
       }
-      reanalyseRecord(record);
+      await reanalyseRecordWithIdentity(record, createIdentityProvider());
       await store.save(record);
       console.log(JSON.stringify(summarise(record), null, 2));
       return;

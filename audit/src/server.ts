@@ -2,13 +2,13 @@ import http from 'node:http';
 import path from 'node:path';
 import { AuditEngine } from './audit/engine.ts';
 import { createApp } from './app.ts';
-import { PROJECT_ROOT, createProvider, createStores } from './config.ts';
+import { PROJECT_ROOT, createIdentityProvider, createProvider, createStores } from './config.ts';
 
 const log = (m: string) => console.log(`${new Date().toISOString()} ${m}`);
 const port = Number(process.env.PORT ?? 3210);
 const provider = createProvider(log);
 const { evidence, store } = createStores();
-const engine = new AuditEngine({ provider, evidence, store, log });
+const engine = new AuditEngine({ provider, evidence, store, identity: createIdentityProvider(), log });
 
 const server = http.createServer(
   createApp({

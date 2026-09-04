@@ -9,6 +9,8 @@ export interface Candidate {
   source: 'bold' | 'heading' | 'link' | 'list' | 'text';
   /** Domain of the anchor this visible name linked to, if any. Supporting information only. */
   domain?: string;
+  /** Full href of that anchor, for identity resolution. */
+  href?: string;
   /** Surrounding visible text, for human verification against the screenshot. */
   context: string;
 }
@@ -67,7 +69,7 @@ export function extractCandidates(response: ChatGptResponse): Candidate[] {
     const anchor = clean(m[2] ?? '');
     const domain = hostOf(href);
     if (!anchor || /^https?:\/\//i.test(anchor)) continue;
-    pushName(out, anchor, 'link', text, domain);
+    pushName(out, anchor, 'link', text, domain, href);
   }
   for (const m of text.matchAll(TEXT_NAME_RE)) {
     pushName(out, m[1] ?? '', 'text', text);
@@ -75,7 +77,7 @@ export function extractCandidates(response: ChatGptResponse): Candidate[] {
   return out;
 }
 
-function pushName(out: Candidate[], raw: string, source: Candidate['source'], visibleText: string, domain?: string): void {
+function pushName(out: Candidate[], raw: string, source: Candidate['source'], visibleText: string, domain?: string, href?: string): void {
   const name = raw.replace(/[*_`"“”]+/g, '').replace(/\s+/g, ' ').replace(/[:.,;–—-]+$/, '').trim();
   if (!looksLikeName(name)) return;
   const context = visibleContext(visibleText, name);
@@ -83,6 +85,7 @@ function pushName(out: Candidate[], raw: string, source: Candidate['source'], vi
   if (context === undefined) return;
   const c: Candidate = { raw: name, source, context };
   if (domain) c.domain = domain;
+  if (href) c.href = href;
   out.push(c);
 }
 

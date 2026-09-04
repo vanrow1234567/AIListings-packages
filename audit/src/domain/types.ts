@@ -112,7 +112,7 @@ export interface ProspectMatchEvidence {
   context: string;
   /** Where in the rendered answer the snippet was found. */
   source: 'bold' | 'heading' | 'link' | 'list' | 'text';
-  matchedBy: 'business_name' | 'name_with_domain' | 'name_alias' | 'visible_domain';
+  matchedBy: 'business_name' | 'name_with_domain' | 'name_alias' | 'visible_domain' | 'resolved_destination';
   turnIndex: number;
 }
 
@@ -128,8 +128,43 @@ export interface EntityMention {
   turnIndex: number;
   /** Domain if the mention came with a link. */
   domain?: string;
+  /** Full href of the visible link, when there was one. */
+  href?: string;
   /** Present only on kind === 'prospect'. */
   evidence?: ProspectMatchEvidence;
+}
+
+/**
+ * Identity resolution: "can we PROVE this surfaced result belongs to the prospect?"
+ * UNRESOLVED never becomes prospectPresent = YES.
+ */
+export type ResolutionState = 'CONFIRMED_PROSPECT' | 'CONFIRMED_OTHER_BUSINESS' | 'UNRESOLVED';
+
+export type ResolutionMethod =
+  | 'name_variant' // accepted business-name variant / alias
+  | 'visible_domain' // the prospect's domain shown as text
+  | 'captured_link' // the visible link's own host already matched (or clearly did not)
+  | 'redirect_follow' // followed redirects / tracking URL to a final host
+  | 'canonical' // rel=canonical on the final page named the host
+  | 'no_link' // nothing to resolve against
+  | 'fetch_failed' // network error, timeout, blocked destination
+  | 'external_provider'; // reserved for GBP / Apify / other identity providers
+
+export interface IdentityResolution {
+  candidateName: string;
+  candidateContext: string;
+  sourceUrl?: string;
+  finalUrl?: string;
+  canonicalUrl?: string;
+  prospectDomain: string;
+  matchedDomain?: string;
+  resolutionMethod: ResolutionMethod;
+  resolutionState: ResolutionState;
+  layer: Layer | 'BRAND_DIAGNOSTIC';
+  turnIndex: number;
+  provider: string;
+  error?: string;
+  resolvedAt: string;
 }
 
 export interface LayerResult {
@@ -148,6 +183,8 @@ export interface LayerResult {
   businessesSurfaced: string[];
   /** Required whenever state === 'YES': the visible text that proved the prospect was there. */
   prospectMatchEvidence?: ProspectMatchEvidence[];
+  /** Identity checks run on ambiguous candidates (name resembles the prospect but is not an accepted variant). */
+  identityResolutions?: IdentityResolution[];
   /** Names of businesses (genuine competitors) mentioned/recommended in this layer. */
   competitorsMentioned: string[];
   error?: string;

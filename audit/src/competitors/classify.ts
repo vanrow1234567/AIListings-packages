@@ -199,6 +199,32 @@ function matchesBusinessName(
   return 'exact';
 }
 
+/**
+ * A candidate that carries every identity token of the prospect but is not an accepted
+ * variant ("Ls tiling & Patios" vs LS-Tiling, "SPP Roofing & Guttering" vs SPP Roofing).
+ * Only these are worth an identity-resolution attempt; nothing else ever becomes the prospect.
+ */
+export function isAmbiguousProspectCandidate(candidate: Pick<Candidate, 'raw'>, prospect: Prospect): boolean {
+  const terms = serviceTerms(prospect);
+  const prospectIdentity = distinctiveTokens(prospect.name, prospect.location, terms);
+  const candTokens = new Set(tokens(candidate.raw).filter((t) => t !== '&'));
+  if (prospectIdentity.length === 0) {
+    const candKey = nameKey(candidate.raw, prospect.location);
+    return candKey.length > 0 && candKey.includes(nameKey(prospect.name, prospect.location));
+  }
+  return prospectIdentity.every((t) => candTokens.has(t));
+}
+
+/** What kind of place a hostname is, for identity resolution. */
+export function domainKind(host: string, prospect: Prospect): 'prospect' | 'infrastructure' | 'intermediary' | 'business' {
+  const h = host.toLowerCase().replace(/^www\./, '');
+  if (prospect.domain && domainMatches(h, [prospect.domain])) return 'prospect';
+  if (domainMatches(h, INFRASTRUCTURE_DOMAINS)) return 'infrastructure';
+  const known = knownKind(h, h);
+  if (known === 'directory' || known === 'review_site' || known === 'marketplace' || known === 'informational' || known === 'unrelated') return 'intermediary';
+  return 'business';
+}
+
 /** Backwards-compatible boolean form. */
 export function isProspect(candidate: Candidate, prospect: Prospect): boolean {
   return matchProspect(candidate, prospect) !== undefined;
@@ -264,6 +290,7 @@ export function toMentions(
     if (existing) {
       if (c.raw.length < existing.name.length && !/\./.test(c.raw) && kind !== 'prospect') existing.name = c.raw;
       if (c.domain && !existing.domain) existing.domain = c.domain;
+      if (c.href && !existing.href) existing.href = c.href;
       continue;
     }
     const m: EntityMention = {
@@ -275,6 +302,7 @@ export function toMentions(
       turnIndex,
     };
     if (c.domain) m.domain = c.domain;
+    if (c.href) m.href = c.href;
     if (evidence) m.evidence = evidence;
     mentions.push(m);
   }

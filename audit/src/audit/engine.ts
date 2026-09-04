@@ -22,11 +22,15 @@ import { generateOutreach } from '../outreach/generate.ts';
 import type { EvidenceStore } from '../evidence/capture.ts';
 import type { AuditStore } from '../persistence/store.ts';
 import { ensurePublicReport, isPubliclyAvailable, publicUrl } from '../public/tracking.ts';
+import type { IdentityProvider } from '../identity/provider.ts';
+import { NullIdentityProvider, applyStoredResolutions, resolveLayerIdentity } from '../identity/resolver.ts';
 
 export interface EngineDeps {
   provider: ChatGptProvider;
   evidence: EvidenceStore;
   store: AuditStore;
+  /** Proves whether an ambiguous surfaced result belongs to the prospect. Defaults to no resolution (UNRESOLVED). */
+  identity?: IdentityProvider;
   fetcher?: WebsiteFetcher;
   now?: () => Date;
   log?: (msg: string) => void;
@@ -169,6 +173,9 @@ export class AuditEngine {
           result.entities.push(...this.analyse(last, u, layer));
         }
       }
+      // Identity resolution for names that resemble the prospect but are not accepted variants.
+      // Uses captured hrefs with isolated requests; the ChatGPT conversation is never touched.
+      await resolveLayerIdentity(result, u.prospect, this.deps.identity ?? new NullIdentityProvider(), '');
       finaliseLayer(result);
     } catch (err) {
       if (err instanceof SignInRequiredError) {
@@ -282,6 +289,7 @@ export function reanalyseRecord(record: AuditRecord): AuditRecord {
     const result = record.layers[layer];
     if (!isConclusiveState(result.state)) continue;
     result.entities = result.turns.flatMap((t) => toMentions(extractCandidates(t.response), u.prospect, layer, t.index));
+    applyStoredResolutions(result, u.prospect); // sync: stored CONFIRMED_PROSPECT resolutions still count
     finaliseLayer(result);
   }
   if (record.brandDiagnostic?.turn) {
@@ -305,6 +313,28 @@ export function reanalyseRecord(record: AuditRecord): AuditRecord {
   ensurePublicReport(record); // only when COMPLETE; an existing token is kept
   record.updatedAt = new Date().toISOString();
   return record;
+}
+
+/**
+ * Reanalyse and run identity resolution afresh for every conclusive layer (isolated requests to the
+ * captured links; ChatGPT is never re-run). Used by the CLI so a stored audit can pick up new evidence.
+ */
+export async function reanalyseRecordWithIdentity(record: AuditRecord, identity: IdentityProvider): Promise<AuditRecord> {
+  const u = record.understanding;
+  if (!u) return record;
+  for (const layer of LAYERS) {
+    const result = record.layers[layer];
+    if (!isConclusiveState(result.state)) continue;
+    delete result.identityResolutions;
+  }
+  reanalyseRecord(record);
+  for (const layer of LAYERS) {
+    const result = record.layers[layer];
+    if (!isConclusiveState(result.state)) continue;
+    await resolveLayerIdentity(result, u.prospect, identity, '');
+    finaliseLayer(result);
+  }
+  return reanalyseRecord(record); // recompute status, competitors, outreach, public report with resolutions applied
 }
 
 function isConclusiveState(state: LayerResult['state']): boolean {

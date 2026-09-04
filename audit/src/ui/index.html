@@ -82,7 +82,8 @@ function renderResult(data) {
   const shots = (label, list) => list.length
     ? `<h2>${label}</h2><div class="shots">${list.map((p) => `<a href="${esc(p)}" target="_blank"><img src="${esc(p)}" alt="${esc(label)}"></a>`).join('')}</div>` : '';
   const layerMeta = (lr) => `<p class="muted">Prospect present: <b>${esc(lr.prospectPresent ?? lr.state)}</b> · Businesses surfaced: ${lr.businessesSurfaced && lr.businessesSurfaced.length ? esc(lr.businessesSurfaced.join(', ')) : '<i>none</i>'}</p>` +
-    (lr.prospectMatchEvidence && lr.prospectMatchEvidence.length ? `<p class="muted">Prospect evidence: ${lr.prospectMatchEvidence.map((e) => `“${esc(e.snippet)}” (${esc(e.source)}, ${esc(e.matchedBy)}, turn ${e.turnIndex + 1})`).join('; ')}</p>` : '');
+    (lr.prospectMatchEvidence && lr.prospectMatchEvidence.length ? `<p class="muted">Prospect evidence: ${lr.prospectMatchEvidence.map((e) => `“${esc(e.snippet)}” (${esc(e.source)}, ${esc(e.matchedBy)}, turn ${e.turnIndex + 1})`).join('; ')}</p>` : '') +
+    (lr.identityResolutions && lr.identityResolutions.length ? `<p class="muted">Identity checks: ${lr.identityResolutions.map((r) => `“${esc(r.candidateName)}” → ${esc(r.resolutionState)} (${esc(r.resolutionMethod)}${r.matchedDomain ? ', ' + esc(r.matchedDomain) : ''}${r.error ? ', ' + esc(r.error) : ''})`).join('; ')}</p>` : '');
   const turns = (lr) => layerMeta(lr) + lr.turns.map((t) => `<p><b>Prompt:</b> ${esc(t.prompt)}</p><pre>${esc(t.response.text)}</pre>${t.conversationUrl ? `<p class="muted">${esc(t.conversationUrl)} · ${esc(t.answeredAt)}</p>` : ''}`).join('') + (lr.error ? `<p class="warn">${esc(lr.error)}</p>` : '');
   $('#result').innerHTML = `
     <div class="layers">${layer('VISIBLE', s.VISIBLE)}${layer('RECOMMENDED', s.RECOMMENDED)}${layer('CONVERSATIONAL', s.CONVERSATIONAL)}</div>

@@ -3,6 +3,9 @@ import { fileURLToPath } from 'node:url';
 import { PlaywrightChatGptProvider } from './chatgpt/playwrightProvider.ts';
 import { EvidenceStore } from './evidence/capture.ts';
 import { AuditStore } from './persistence/store.ts';
+import { HttpDestinationResolver } from './identity/destination.ts';
+import { LinkIdentityResolver } from './identity/resolver.ts';
+import type { IdentityProvider } from './identity/provider.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** Project root (audit/) regardless of running from src/ or dist/. */
@@ -21,6 +24,12 @@ export function createProvider(log: (m: string) => void): PlaywrightChatGptProvi
     navigationTimeoutMs: Number(process.env.AUDIT_NAV_TIMEOUT_MS ?? 60_000),
     log,
   });
+}
+
+export function createIdentityProvider(): IdentityProvider {
+  return new LinkIdentityResolver(
+    new HttpDestinationResolver({ timeoutMs: Number(process.env.AUDIT_IDENTITY_TIMEOUT_MS ?? 6000) }),
+  );
 }
 
 export function createStores(): { evidence: EvidenceStore; store: AuditStore } {
