@@ -70,6 +70,21 @@ prospect's own domain shown as text. Hidden hrefs, map/citation infrastructure, 
 ("Tiling", "Wendover Tilers") and approximate resemblance never count. Raw hrefs are never candidates,
 so Mapbox / OpenStreetMap / Google Maps / ChatGPT links cannot become competitors.
 
+### Prospect-facing report
+
+Every `COMPLETE` audit receives a random 256-bit token and a public page at `GET /a/:token` (also in the
+summary as `publicUrl`). Incomplete, errored or sign-in-required audits never get one. The page shows
+the business name, what was tested, the three verdicts, the strongest three genuine competitors, why
+visible differs from recommended, expandable evidence screenshots and a CTA. It contains no internal
+ids, provider details, classification data, paths, errors or ChatGPT transcripts. Screenshots are
+served only at `/a/:token/evidence/:file` for files that belong to that audit.
+
+Tracking per report: `firstViewedAt`, `lastViewedAt`, `viewCount` on each page view; `ctaClickedAt`,
+`ctaClickCount` on each CTA click (`GET /a/:token/cta` records the click and redirects to
+`PUBLIC_CTA_URL`). `GET /api/audits/:id/tracking` returns that state for the later CRM push.
+
+Set `PUBLIC_BASE_URL` to the externally reachable origin (default `http://localhost:<PORT>`).
+
 ### Re-interpreting a stored audit
 
 ```bash
@@ -102,7 +117,7 @@ If chatgpt.com changes its markup, update `SELECTORS` in `src/chatgpt/playwright
 
 ```bash
 npm run typecheck
-npm test            # 37 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 4 adapter plumbing tests against a local DOM double
+npm test            # 45 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 4 adapter plumbing tests against a local DOM double
 npm run build
 ```
 

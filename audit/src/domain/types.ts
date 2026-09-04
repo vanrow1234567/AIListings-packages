@@ -180,6 +180,20 @@ export interface Evidence {
   brandDiagnosticScreenshots: string[];
 }
 
+/**
+ * Prospect-facing report. Issued only for COMPLETE audits. The token is random and
+ * carries no information about the business, the audit id or any storage id.
+ */
+export interface PublicReport {
+  token: string;
+  createdAt: string;
+  firstViewedAt?: string;
+  lastViewedAt?: string;
+  viewCount: number;
+  ctaClickedAt?: string;
+  ctaClickCount: number;
+}
+
 export interface AuditRecord {
   id: string;
   createdAt: string;
@@ -197,6 +211,7 @@ export interface AuditRecord {
   /** Human readable explanation when the audit is INCOMPLETE / SIGN_IN_REQUIRED. */
   incompleteReason?: string;
   provider: string;
+  publicReport?: PublicReport;
 }
 
 /** Summary shape used by the UI / API. Mirrors the required structured output. */
@@ -211,4 +226,6 @@ export interface AuditSummary {
   outreachMessage?: string;
   evidence: Evidence;
   incompleteReason?: string;
+  /** Prospect-facing report URL. Present only for COMPLETE audits. */
+  publicUrl?: string;
 }

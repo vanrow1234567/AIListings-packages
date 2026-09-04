@@ -88,6 +88,7 @@ function renderResult(data) {
     <div class="layers">${layer('VISIBLE', s.VISIBLE)}${layer('RECOMMENDED', s.RECOMMENDED)}${layer('CONVERSATIONAL', s.CONVERSATIONAL)}</div>
     <p class="muted" style="margin-top:10px">${esc(s.prospect.name)} · ${esc(s.prospect.location)} · ${esc(s.prospect.service)} · status <b>${esc(s.status)}</b> · provider ${esc(r.provider)}</p>
     ${s.incompleteReason ? `<div class="warn">${esc(s.incompleteReason)}</div>` : ''}
+    ${s.publicUrl ? `<p><b>Prospect report:</b> <a href="${esc(s.publicUrl)}" target="_blank">${esc(s.publicUrl)}</a></p>` : ''}
     <h2>TOP AI COMPETITORS</h2>${comps}
     <h2>OUTREACH MESSAGE</h2>${s.outreachMessage ? `<blockquote>${esc(s.outreachMessage)}</blockquote>` : '<p class="muted">Not generated: the audit is incomplete, so no definitive prospect claims are made.</p>'}
     <h2>EVIDENCE</h2>

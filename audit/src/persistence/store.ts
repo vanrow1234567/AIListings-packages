@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
+import { timingSafeEqual } from 'node:crypto';
 import type { AuditRecord } from '../domain/types.ts';
 
 /** Minimal JSON-file persistence: one file per audit. Suitable for an MVP. */
@@ -29,6 +30,19 @@ export class AuditStore {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
       throw err;
     }
+  }
+
+  /** Constant-time token comparison over all stored audits (MVP scale). */
+  async findByPublicToken(token: string): Promise<AuditRecord | undefined> {
+    if (!token || !/^[A-Za-z0-9_-]{20,128}$/.test(token)) return undefined;
+    const given = Buffer.from(token);
+    for (const record of await this.list()) {
+      const stored = record.publicReport?.token;
+      if (!stored) continue;
+      const buf = Buffer.from(stored);
+      if (buf.length === given.length && timingSafeEqual(buf, given)) return record;
+    }
+    return undefined;
   }
 
   async list(): Promise<AuditRecord[]> {

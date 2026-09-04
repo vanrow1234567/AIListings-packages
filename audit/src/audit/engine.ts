@@ -21,6 +21,7 @@ import { businessesSurfaced, competitorNames, decideAuditStatus, decideLayerStat
 import { generateOutreach } from '../outreach/generate.ts';
 import type { EvidenceStore } from '../evidence/capture.ts';
 import type { AuditStore } from '../persistence/store.ts';
+import { ensurePublicReport, isPubliclyAvailable, publicUrl } from '../public/tracking.ts';
 
 export interface EngineDeps {
   provider: ChatGptProvider;
@@ -136,6 +137,7 @@ export class AuditEngine {
       competitors: record.topCompetitors,
     });
     if (message) record.outreachMessage = message;
+    ensurePublicReport(record, this.deps.now); // only when COMPLETE
     await this.done(record, 'Preparing message');
     delete record.currentStep;
     record.updatedAt = this.now();
@@ -300,6 +302,7 @@ export function reanalyseRecord(record: AuditRecord): AuditRecord {
   });
   if (message) record.outreachMessage = message;
   else delete record.outreachMessage;
+  ensurePublicReport(record); // only when COMPLETE; an existing token is kept
   record.updatedAt = new Date().toISOString();
   return record;
 }
@@ -308,8 +311,9 @@ function isConclusiveState(state: LayerResult['state']): boolean {
   return state === 'YES' || state === 'NO';
 }
 
-export function summarise(record: AuditRecord) {
+export function summarise(record: AuditRecord, publicBaseUrl?: string) {
   return {
+    publicUrl: publicBaseUrl && isPubliclyAvailable(record) ? publicUrl(publicBaseUrl, record.publicReport.token) : undefined,
     id: record.id,
     status: record.status,
     prospect: {
