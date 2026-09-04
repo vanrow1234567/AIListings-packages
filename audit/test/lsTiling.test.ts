@@ -275,28 +275,51 @@ test('live pattern: job descriptions are never businesses', async () => {
   }
   const mentions = toMentions(extractCandidates(liveJobPattern), p, 'CONVERSATIONAL', 1);
   const surfaced = mentions.filter((m) => m.kind === 'competitor' || m.kind === 'prospect').map((m) => m.name).sort();
-  assert.deepEqual(surfaced, ['LS-Tiling', 'Limartra Tiling and Restoration', 'SDB Tiling']);
+  assert.deepEqual(surfaced, ['Limartra Tiling and Restoration', 'Ls tiling & Patios', 'SDB Tiling']);
   for (const bad of ['Kitchen splashback', 'Hallway/kitchen floor', 'Bathroom walls and floor']) assert.ok(!surfaced.includes(bad), bad);
 });
 
-test('live pattern: "Ls tiling & Patios" is a trading-name variant of LS-Tiling, with evidence', async () => {
+test('live pattern: "Ls tiling & Patios" (flooring contractor in Aylesbury) is NOT the prospect by name alone', async () => {
   const p = await prospect();
-  const m = matchProspect(cand('Ls tiling & Patios', 'bold'), p, 1);
-  assert.equal(m?.matchedBy, 'business_name', 'identity "LS" + trade "tiling" present; "Patios" is a service descriptor, not a different identity');
-  assert.equal(m?.snippet, 'Ls tiling & Patios');
-  assert.equal(matchProspect(cand('LS Tiling & Patios', 'list'), p)?.matchedBy, 'business_name');
-  // Still not the prospect: a different identity, or the same initials in a different trade.
+  assert.equal(p.name, 'LS-Tiling');
+  assert.equal(p.domain, 'ls-tiling.co.uk');
+  assert.equal(p.location, 'Wendover');
+  const seen: Candidate = { raw: 'Ls tiling & Patios', source: 'bold', context: 'Ls tiling & Patios — flooring contractor in Aylesbury' };
+  assert.equal(matchProspect(seen, p, 1), undefined, 'LS + tiling is not enough: "& Patios" is an extra trading-name word with no independent identity evidence');
+  assert.equal(matchProspect(cand('LS Tiling & Patios', 'list'), p), undefined);
+  assert.equal(matchProspect(cand('LS Tiling and Patios Ltd', 'list'), p), undefined);
+  assert.equal(classifyCandidate(seen, p), 'competitor', 'it is still a genuine named provider ChatGPT surfaced');
+  // Independent evidence: the same name visibly linking to the prospect's own domain does establish identity.
+  const linked = matchProspect({ ...seen, source: 'link', domain: 'ls-tiling.co.uk' }, p, 1);
+  assert.equal(linked?.matchedBy, 'name_with_domain');
+  assert.equal(matchProspect({ ...seen, source: 'link', domain: 'www.ls-tiling.co.uk' }, p)?.matchedBy, 'name_with_domain');
+  assert.equal(matchProspect({ ...seen, source: 'link', domain: 'lstilingandpatios.co.uk' }, p), undefined, 'a different domain is not evidence');
+  // Genuine variants are unaffected: punctuation, spacing, case, Ltd/Limited, location, morphology, domain brand.
+  for (const v of ['LS-Tiling', 'LS Tiling', 'ls tiling', 'LS Tiling Ltd', 'LS Tiling Limited', 'LS Tiling Wendover', 'LS Tilers', 'LS Tiler Wendover']) {
+    assert.equal(matchProspect(cand(v, 'bold'), p)?.matchedBy, 'business_name', v);
+  }
+  // Dotted initials split into single letters and are recovered through the domain-brand alias.
+  assert.equal(matchProspect(cand('L.S. Tiling', 'bold'), p)?.matchedBy, 'name_alias');
+  assert.equal(matchProspect(cand('LSTiling', 'text'), p)?.matchedBy, 'name_alias');
+  assert.equal(matchProspect(cand('ls-tiling.co.uk', 'link', 'ls-tiling.co.uk'), p)?.matchedBy, 'visible_domain');
+  // Still not the prospect either way.
   assert.equal(matchProspect(cand('SDB Tiling & Patios', 'bold'), p), undefined);
   assert.equal(matchProspect(cand('LS Plumbing & Patios', 'bold'), p), undefined);
-  assert.equal(matchProspect(cand('LS Patios', 'bold'), p), undefined, 'short identity needs the prospect\'s own trade word alongside it');
-  assert.equal(matchProspect(cand('Patios & Tiling', 'bold'), p), undefined, 'no identity token at all');
-  // Through the pipeline the layer becomes YES with the exact visible snippet recorded.
+  assert.equal(matchProspect(cand('LS Patios', 'bold'), p), undefined);
+  assert.equal(matchProspect(cand('Patios & Tiling', 'bold'), p), undefined);
+  // Through the pipeline the layer stays NO and the name appears among the businesses surfaced.
   const mentions = toMentions(extractCandidates(liveJobPattern), p, 'CONVERSATIONAL', 1);
-  const prospectMention = mentions.find((x) => x.kind === 'prospect');
-  assert.ok(prospectMention?.evidence);
-  assert.equal(prospectMention.evidence.snippet, 'Ls tiling & Patios');
-  assert.match(prospectMention.evidence.context, /Ls tiling & Patios – Wendover/);
-  assert.equal(prospectMention.evidence.source, 'bold');
+  assert.equal(mentions.some((x) => x.kind === 'prospect'), false);
+  assert.ok(mentions.some((x) => x.kind === 'competitor' && x.name === 'Ls tiling & Patios'));
+});
+
+test('the same rule holds for other prospects: extra trade words need domain evidence', async () => {
+  const spp: Prospect = { name: 'SPP Roofing', website: 'https://www.spproofing.co.uk/', domain: 'spproofing.co.uk', location: 'Southampton', serviceTerms: ['roofing', 'roofers', 'roofer', 'roof', 'roofs', 'guttering'] };
+  assert.equal(matchProspect(cand('SPP Roofing & Building', 'bold'), spp), undefined);
+  assert.equal(matchProspect(cand('SPP Roofing & Guttering', 'bold'), spp), undefined, 'even a related service in the profile is an extra trading-name word');
+  assert.equal(matchProspect({ ...cand('SPP Roofing & Building', 'link'), domain: 'spproofing.co.uk' }, spp)?.matchedBy, 'name_with_domain');
+  assert.equal(matchProspect(cand('SPP Roofers Ltd', 'bold'), spp)?.matchedBy, 'business_name');
+  assert.equal(matchProspect(cand('SPP Roofing Southampton', 'list'), spp)?.matchedBy, 'business_name');
 });
 
 /**

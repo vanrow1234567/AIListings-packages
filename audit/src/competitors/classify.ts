@@ -139,8 +139,12 @@ export function matchProspect(candidate: Candidate, prospect: Prospect, turnInde
   const candIdentity = distinctiveTokens(raw, prospect.location, terms);
   if (candIdentity.length === 0) return undefined; // generic description, never the prospect
 
-  // 2. Business name with a strong identity match.
-  if (matchesBusinessName(candTokens, candIdentity, prospect, terms, raw)) return { ...base, matchedBy: 'business_name' };
+  // 2. Business name with a strong identity match. A candidate that links to the prospect's own
+  //    website may carry extra trading-name words ("LS Tiling & Patios" -> ls-tiling.co.uk); by name
+  //    alone it may not.
+  const linksToProspect = !!candidate.domain && domainMatches(candidate.domain, [prospect.domain]) && prospect.domain.length > 0;
+  const nameMatch = matchesBusinessName(candTokens, candIdentity, prospect, terms, raw, linksToProspect);
+  if (nameMatch) return { ...base, matchedBy: linksToProspect && nameMatch === 'with_domain' ? 'name_with_domain' : 'business_name' };
 
   // 3. Alias: the website brand written as a word, e.g. "LSTiling" / "spproofing".
   const brand = domainBrand(prospect.domain).replace(/-/g, '');
@@ -148,12 +152,34 @@ export function matchProspect(candidate: Candidate, prospect: Prospect, turnInde
   return undefined;
 }
 
-function matchesBusinessName(candTokens: string[], candIdentity: string[], prospect: Prospect, terms: readonly string[], raw: string): boolean {
+/** "tiling" / "tilers" / "tiler" -> "til"; "roofing" / "roofers" -> "roof". Morphological variants of one trade. */
+function tradeStem(word: string): string {
+  const stem = word.replace(/(ings?|ers?|s)$/, '');
+  return stem.length >= 3 ? stem : word;
+}
+
+/**
+ * Strong identity match between a visible candidate name and the prospect's name.
+ * Accepted variants: punctuation, spacing, capitalisation, legal suffixes, the audit location,
+ * and morphological forms of the prospect's own trade words ("LS Tilers Ltd, Wendover").
+ * Rejected by name alone: any foreign identity word, and any trade word the prospect's name
+ * does not carry ("Ls tiling & Patios" is not "LS-Tiling" without independent evidence).
+ * Returns 'exact' | 'with_domain' (extra trading words allowed only because the candidate links
+ * to the prospect's own domain) | false.
+ */
+function matchesBusinessName(
+  candTokens: string[],
+  candIdentity: string[],
+  prospect: Prospect,
+  terms: readonly string[],
+  raw: string,
+  linksToProspect: boolean,
+): 'exact' | 'with_domain' | false {
   const prospectTokens = tokens(prospect.name).filter((t) => t !== '&');
   const prospectIdentity = distinctiveTokens(prospect.name, prospect.location, terms);
   if (prospectIdentity.length === 0) {
     // Prospect is itself named descriptively ("Wendover Tiling"): require the full normalised name.
-    return candTokens.length > 0 && nameKey(raw, '') === nameKey(prospect.name, '');
+    return candTokens.length > 0 && nameKey(raw, '') === nameKey(prospect.name, '') ? 'exact' : false;
   }
   const candSet = new Set(candTokens);
   if (!prospectIdentity.every((t) => candSet.has(t))) return false;
@@ -166,7 +192,11 @@ function matchesBusinessName(candTokens: string[], candIdentity: string[], prosp
   }
   const shortIdentity = prospectIdentity.every((t) => t.length <= 3);
   if (shortIdentity && candTrade.length === 0) return false; // "LS" alone is not LS-Tiling
-  return true;
+  // Extra trading-name words are identity, not noise: "& Patios" is only accepted with domain evidence.
+  const prospectStems = new Set(prospectTrade.map(tradeStem));
+  const extraTrade = candTrade.filter((t) => !prospectStems.has(tradeStem(t)));
+  if (extraTrade.length > 0) return linksToProspect ? 'with_domain' : false;
+  return 'exact';
 }
 
 /** Backwards-compatible boolean form. */

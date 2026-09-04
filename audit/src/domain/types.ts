@@ -112,7 +112,7 @@ export interface ProspectMatchEvidence {
   context: string;
   /** Where in the rendered answer the snippet was found. */
   source: 'bold' | 'heading' | 'link' | 'list' | 'text';
-  matchedBy: 'business_name' | 'name_alias' | 'visible_domain';
+  matchedBy: 'business_name' | 'name_with_domain' | 'name_alias' | 'visible_domain';
   turnIndex: number;
 }
 
