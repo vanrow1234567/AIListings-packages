@@ -26,14 +26,30 @@ export const lsTilingSite: WebsiteSnapshot = {
 };
 
 const MAP_CARD =
-  '<div class="map-card"><div class="mapboxgl-map"><div class="mapboxgl-ctrl-attrib">' +
+  '<div class="map-card"><h4>Wendover, Buckinghamshire</h4>' +
+  '<div class="place"><strong>SDB Tiling</strong><div><b>Pound Street, Wendover</b></div><span>4.9 ★ (37 reviews)</span></div>' +
+  '<div class="place"><strong>Signature Tiling &amp; Carpentry</strong><div><b>London Road, Wendover</b></div><span>5.0 ★ (12 reviews)</span></div>' +
+  '<div class="mapboxgl-map"><div class="mapboxgl-ctrl-attrib">' +
   '<a href="https://www.mapbox.com/about/maps/" target="_blank">© Mapbox</a> ' +
   '<a href="https://www.openstreetmap.org/copyright" target="_blank">© OpenStreetMap</a> ' +
   '<a href="https://apps.mapbox.com/feedback/?owner=openai&amp;id=xyz" target="_blank">Improve this map</a>' +
   '</div></div>' +
   '<a href="https://www.google.com/maps/search/tilers+near+Wendover/?utm_source=chatgpt.com">Open in Google Maps</a></div>';
 
-const MAP_TEXT = '© Mapbox © OpenStreetMap Improve this map\nOpen in Google Maps';
+const MAP_TEXT =
+  'Wendover, Buckinghamshire\nSDB Tiling\nPound Street, Wendover\n4.9 ★ (37 reviews)\nSignature Tiling & Carpentry\nLondon Road, Wendover\n5.0 ★ (12 reviews)\n' +
+  '© Mapbox © OpenStreetMap Improve this map\nOpen in Google Maps';
+
+/** Advice block ChatGPT appends to Conversational answers: instructions and section headings, not businesses. */
+const ADVICE_HTML =
+  '<h3>How to choose</h3><ol>' +
+  '<li><p><strong>Work out exactly what needs tiling</strong> – walls, floor or both, and the area in m².</p></li>' +
+  '<li><p><strong>Get 2–3 quotes</strong> – ask each tiler to itemise labour and materials.</p></li>' +
+  '<li><p><strong>Check reviews and insurance</strong> – public liability at a minimum.</p></li></ol>' +
+  '<h3>For tiles themselves</h3><p>Tile retailers in Aylesbury and online suppliers are the usual options.</p>';
+const ADVICE_TEXT =
+  'How to choose\nWork out exactly what needs tiling – walls, floor or both, and the area in m².\nGet 2–3 quotes – ask each tiler to itemise labour and materials.\n' +
+  'Check reviews and insurance – public liability at a minimum.\nFor tiles themselves\nTile retailers in Aylesbury and online suppliers are the usual options.';
 
 /** VISIBLE: "Tiling companies in Wendover" */
 export const visibleResponse: ChatGptResponse = {
@@ -93,12 +109,14 @@ export const recommendedResponse: ChatGptResponse = {
 export const conversationalTurn1: ChatGptResponse = {
   text:
     'Loose or cracked tiles usually mean the adhesive has failed or the substrate has moved. A tiler can lift the affected area, ' +
-    'check the boards behind and re-tile it in a day or two. Tiling like this is a repair job, not a full refit. ' +
-    'Would you like me to suggest some tilers near Wendover?',
+    'check the boards behind and re-tile it in a day or two. Tiling like this is a repair job, not a full refit.\n' +
+    ADVICE_TEXT +
+    '\nWould you like me to suggest some tilers near Wendover?',
   html:
     '<p>Loose or cracked tiles usually mean the adhesive has failed or the substrate has moved. A tiler can lift the affected area, ' +
-    'check the boards behind and re-tile it in a day or two. <strong>Tiling</strong> like this is a repair job, not a full refit. ' +
-    'Would you like me to suggest some tilers near Wendover?</p>',
+    'check the boards behind and re-tile it in a day or two. <strong>Tiling</strong> like this is a repair job, not a full refit.</p>' +
+    ADVICE_HTML +
+    '<p>Would you like me to suggest some tilers near Wendover?</p>',
   links: [],
 };
 
@@ -112,6 +130,7 @@ export const conversationalTurn2: ChatGptResponse = {
     'Local tilers\n' +
     'Tiling\n' +
     MAP_TEXT +
+    '\n' + ADVICE_TEXT +
     '\nSources',
   html:
     '<p>Here are a few tilers near Wendover worth contacting:</p><ul>' +
@@ -119,7 +138,7 @@ export const conversationalTurn2: ChatGptResponse = {
     '<li><p><strong>SDB Tiling</strong> – Wendover and Aylesbury; wall and floor tiling.</p></li>' +
     '<li><p><strong>Signature Tiling &amp; Carpentry</strong> – Chesham; bathrooms and kitchens.</p></li></ul>' +
     '<h3>Local tilers</h3><h4>Tiling</h4>' +
-    MAP_CARD +
+    MAP_CARD + ADVICE_HTML +
     '<div class="sources"><a href="https://www.mapbox.com/">Sources</a></div>',
   links: [
     'https://www.mapbox.com/about/maps/',

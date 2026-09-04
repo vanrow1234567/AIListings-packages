@@ -20,7 +20,7 @@ test('1. prospect Visible but not Recommended', async () => {
   assert.equal(record.layers.RECOMMENDED.state, 'NO');
   assert.equal(record.layers.CONVERSATIONAL.state, 'NO');
   assert.equal(record.status, 'COMPLETE');
-  assert.match(record.outreachMessage ?? '', /You're visible, which is good/);
+  assert.match(record.outreachMessage ?? '', /In the searches we ran you're visible, which is good/);
   assert.match(record.outreachMessage ?? '', /Solent Roofing/);
   assert.equal(record.topCompetitors[0]?.name, 'Solent Roofing');
   assert.equal(record.evidence.visibleScreenshots.length, 1);

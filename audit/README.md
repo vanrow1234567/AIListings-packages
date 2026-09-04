@@ -102,7 +102,7 @@ If chatgpt.com changes its markup, update `SELECTORS` in `src/chatgpt/playwright
 
 ```bash
 npm run typecheck
-npm test            # 35 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 4 adapter plumbing tests against a local DOM double
+npm test            # 37 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 4 adapter plumbing tests against a local DOM double
 npm run build
 ```
 

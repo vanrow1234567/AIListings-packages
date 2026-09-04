@@ -100,10 +100,58 @@ export function visibleContext(visibleText: string, name: string): string | unde
   return visibleText.slice(start, end).replace(/\s+/g, ' ').trim();
 }
 
+/** Verbs that open an instruction or piece of advice rather than a business name. */
+const INSTRUCTION_STARTS = new Set([
+  'work', 'get', 'ask', 'check', 'look', 'make', 'call', 'contact', 'consider', 'use', 'try', 'choose', 'find',
+  'compare', 'confirm', 'agree', 'measure', 'budget', 'plan', 'prepare', 'book', 'hire', 'avoid', 'keep', 'allow',
+  'expect', 'request', 'read', 'take', 'start', 'decide', 'think', 'remember', 'ensure', 'dont', 'do', 'be', 'set',
+  'give', 'let', 'pay', 'put', 'see', 'send', 'speak', 'talk', 'tell', 'walk', 'watch', 'write', 'go', 'have',
+  'know', 'learn', 'leave', 'note', 'pick', 'shop', 'visit', 'wait', 'want', 'search', 'ring', 'phone', 'email',
+]);
+/** Prepositions / determiners that open a phrase ("For tiles themselves", "If the grout...") rather than a name. */
+const PHRASE_STARTS = new Set(['for', 'if', 'when', 'your', 'a', 'an', 'in', 'on', 'at', 'with', 'about', 'before', 'after', 'while', 'once', 'because', 'why', 'what', 'how', 'where', 'who', 'which', 'whether', 'unless', 'until', 'although', 'though', 'as', 'to', 'from', 'by', 'of', 'this', 'that', 'these', 'those', 'there', 'here', 'it', 'its', 'my', 'our', 'their', 'his', 'her', 'some', 'any', 'no', 'not', 'most', 'many', 'more', 'less', 'all', 'each', 'every', 'both', 'either', 'neither', 'other', 'another', 'such', 'then', 'so', 'yes', 'ok', 'okay', 'also', 'always', 'never', 'usually', 'often', 'sometimes', 'typically', 'generally']);
+/** Lowercase words that legitimately appear inside a business name. */
+const NAME_JOINERS = new Set(['and', 'of', 'the', '&', 'for', 'at', 'in', 'on', 'by', 'to', 'de', 'du', 'la', 'le', 'von', 'van']);
+
+/** "Get 2–3 quotes", "4.9 stars", "(120 reviews)", "3 quotes" ... counts and ratings are not names. */
+export function looksLikeCountOrRating(name: string): boolean {
+  return (
+    /\d\s*[–—-]\s*\d/.test(name) ||
+    /\b\d+(?:\.\d+)?\s*(?:stars?|reviews?|ratings?|quotes?|years?|days?|hours?|weeks?|months?|%|£|\$|★|⭐)/i.test(name) ||
+    /^\(?\d+(?:\.\d+)?\)?$/.test(name) ||
+    /[★⭐]/.test(name)
+  );
+}
+
+/** Instructions and advice ("Work out exactly what needs tiling") and prose fragments ("For tiles themselves"). */
+export function looksLikeInstructionOrPhrase(name: string): boolean {
+  const words = name.split(/\s+/);
+  const first = words[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? '';
+  if (INSTRUCTION_STARTS.has(first)) return true;
+  if (PHRASE_STARTS.has(first) && !(first === 'the' && words.length <= 4)) return true;
+  // Business names are Title Case apart from joiners; two or more other lowercase words make it a phrase.
+  const lowercaseWords = words.slice(1).filter((w) => /^[a-z]/.test(w) && !NAME_JOINERS.has(w.toLowerCase()));
+  if (lowercaseWords.length >= 2) return true;
+  if (lowercaseWords.length === 1 && words.length <= 3 && !/\b(ltd|limited|plc|llp|co)\b/i.test(name)) {
+    // "For tiles themselves" is caught above; "SDB tiling" (one lowercase trade word) stays a plausible name.
+    const w = lowercaseWords[0]?.toLowerCase() ?? '';
+    if (/^(themselves|yourself|itself|needs|need|quotes|quote|first|only|too|also|again|now|later|here|there)$/.test(w)) return true;
+  }
+  if (/\b(you|your|we|our|i|me|us|they|them|should|must|need|needs|will|would|could|can|may|might|shall|exactly|whether|what|how|why)\b/i.test(name)) return true;
+  return false;
+}
+
+/** Section headings ChatGPT uses to organise advice ("Tiler recommendations", "Cost guide", "Next steps"). */
+const SECTION_WORDS =
+  /\b(recommendations?|options?|guide|guides|tips?|advice|checklist|summary|overview|faqs?|notes?|steps?|questions?|considerations?|factors?|signs?|causes?|pros|cons|verdict|conclusion|takeaways?|alternatives?|approach|approaches|comparison|examples?|sources?|references?|disclaimer|caveats?)\b/i;
+
 export function looksLikeName(name: string): boolean {
   if (name.length < 2 || name.length > 60) return false;
   const words = name.split(/\s+/);
   if (words.length > 6) return false;
+  if (looksLikeCountOrRating(name)) return false;
+  if (SECTION_WORDS.test(name) && !/\b(ltd|limited|plc|llp|co|company|group)\b/i.test(name)) return false;
+  if (!isBareDomain(name) && looksLikeInstructionOrPhrase(name)) return false;
   // Names start with a capital or digit; bare domains ("ls-tiling.co.uk") are allowed because a
   // visibly presented website is admissible prospect evidence (they are never competitors, see classify).
   if (!/^[A-Z0-9]/.test(name) && !isBareDomain(name)) return false;

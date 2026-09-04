@@ -46,6 +46,47 @@ const KNOWN: KnownEntity[] = [
   { kind: 'unrelated', names: INFRASTRUCTURE_NAMES, domains: INFRASTRUCTURE_DOMAINS },
 ];
 
+const UK_REGIONS = new Set([
+  'buckinghamshire', 'bucks', 'hampshire', 'hants', 'berkshire', 'berks', 'oxfordshire', 'oxon', 'hertfordshire', 'herts',
+  'bedfordshire', 'beds', 'surrey', 'kent', 'essex', 'sussex', 'wiltshire', 'wilts', 'dorset', 'somerset', 'devon',
+  'cornwall', 'gloucestershire', 'glos', 'warwickshire', 'worcestershire', 'herefordshire', 'northamptonshire',
+  'cambridgeshire', 'cambs', 'norfolk', 'suffolk', 'lincolnshire', 'lincs', 'leicestershire', 'leics', 'rutland',
+  'nottinghamshire', 'notts', 'derbyshire', 'staffordshire', 'staffs', 'shropshire', 'cheshire', 'lancashire', 'lancs',
+  'yorkshire', 'cumbria', 'durham', 'northumberland', 'merseyside', 'manchester', 'london', 'midlands', 'england',
+  'scotland', 'wales', 'uk', 'united', 'kingdom', 'britain', 'chilterns', 'cotswolds', 'thames', 'valley', 'home', 'counties',
+  'aylesbury', 'chesham', 'amersham', 'tring', 'princes', 'risborough', 'thame', 'high', 'wycombe', 'beaconsfield',
+]);
+const STREET_WORDS =
+  /\b(street|st|road|rd|lane|ln|avenue|ave|close|cl|drive|dr|way|place|pl|court|ct|crescent|cres|hill|park|gardens|gdns|square|sq|terrace|row|grove|rise|view|end|green|walk|mews|parade|estate|industrial|business|centre|center|unit|units|suite|floor)\b\.?$/i;
+const UK_POSTCODE = /\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i;
+
+/**
+ * "Wendover, Buckinghamshire", "Pound Street, Wendover", "12 London Road", "HP22 6EJ":
+ * places and street addresses shown on map cards, never businesses.
+ */
+export function looksLikePlaceOrAddress(raw: string, location: string): boolean {
+  const name = raw.trim();
+  if (UK_POSTCODE.test(name)) return true;
+  if (/^\d+[a-z]?\b/i.test(name)) return true; // house number
+  const loc = locationTokens(location);
+  const parts = name.split(/\s*,\s*/).filter(Boolean);
+  const isPlaceToken = (t: string) => loc.has(t) || UK_REGIONS.has(t);
+  const partIsPlace = (part: string) => {
+    const toks = tokens(part).filter((t) => t !== '&');
+    if (toks.length === 0) return false;
+    if (toks.every(isPlaceToken)) return true;
+    return STREET_WORDS.test(part) && !toks.some((t) => isServiceWord(t) || /^(ltd|limited|plc|llp|co|company)$/.test(t));
+  };
+  if (parts.length >= 2 && parts.every(partIsPlace)) return true;
+  if (parts.length >= 2 && parts.slice(1).every((p) => tokens(p).every(isPlaceToken)) && partIsPlace(parts[0] ?? '')) return true;
+  if (parts.length === 1) {
+    const toks = tokens(name).filter((t) => t !== '&');
+    if (toks.length > 0 && toks.every(isPlaceToken)) return true;
+    if (STREET_WORDS.test(name) && !toks.some((t) => isServiceWord(t) || /^(ltd|limited|plc|llp|co|company)$/.test(t))) return true;
+  }
+  return false;
+}
+
 function domainMatches(domain: string | undefined, list: readonly string[]): boolean {
   if (!domain) return false;
   const d = domain.toLowerCase().replace(/^www\./, '');
@@ -137,6 +178,7 @@ export function isProspect(candidate: Candidate, prospect: Prospect): boolean {
 export function classifyCandidate(c: Candidate, prospect: Prospect): EntityKind {
   if (matchProspect(c, prospect)) return 'prospect';
   if (isInfrastructure(c.raw, c.domain)) return 'unrelated';
+  if (looksLikePlaceOrAddress(c.raw, prospect.location)) return 'unrelated';
   const known = knownKind(c.raw, c.domain);
   if (known) return known;
   // A bare domain that is not the prospect's is never a named business result on its own.
@@ -151,15 +193,27 @@ export function classifyCandidate(c: Candidate, prospect: Prospect): EntityKind 
   const hasLegalWord = toks.some((t) => /^(ltd|limited|llp|plc|group|co|company|contractors)$/.test(t));
   // "Wendover Tilers" is a description, not a company; "Wendover Tiling Ltd" presented as a name is.
   if (distinct.length === 0) {
-    return hasLegalWord && c.source !== 'text' ? 'competitor' : 'uncertain';
+    if (hasLegalWord && c.source !== 'text') return 'competitor';
+    // "Wendover Interiors" shown as a link to its own (non-directory) website is a named provider.
+    if (c.source === 'link' && c.domain && !isBareDomain(c.raw) && toks.length >= 2) return 'competitor';
+    return 'uncertain';
   }
   const hasTradeWord = hasLegalWord || toks.some((t) => isServiceWord(t, terms) || t === 'services');
   if (hasTradeWord) return 'competitor';
-  // Multi-word bold / list / linked names ("Signature Tiling & Carpentry" is caught above; "Stone & Slate Co" here)
-  if ((c.source === 'bold' || c.source === 'list' || c.source === 'link') && toks.length >= 2 && toks.length <= 4 && /[A-Z]/.test(c.raw)) {
+  // A visible name that links to its own (non-directory, non-infrastructure) website is a named provider.
+  if (c.source === 'link' && c.domain && !isBareDomain(c.raw) && toks.length >= 1 && toks.length <= 4) return 'competitor';
+  // Otherwise a bold / list name needs to read as a proper noun: every word capitalised (joiners aside),
+  // at least two words, no comma (a comma is a place or an address on a map card).
+  if ((c.source === 'bold' || c.source === 'list') && toks.length >= 2 && toks.length <= 4 && isTitleCaseName(c.raw)) {
     return 'competitor';
   }
   return 'uncertain';
+}
+
+function isTitleCaseName(raw: string): boolean {
+  if (/,/.test(raw)) return false;
+  const words = raw.split(/\s+/);
+  return words.every((w) => /^[A-Z0-9]/.test(w) || /^(and|of|the|&|for|at|in|on|by|de|du|la|le|von|van)$/i.test(w));
 }
 
 /** Turn raw candidates into merged entity mentions for one layer/turn. */

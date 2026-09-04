@@ -136,8 +136,11 @@ test('outreach: evidence-bound wording and no message for incomplete audits', ()
   const base = { prospect, service: 'roofing' };
   const comps = [{ name: 'Solent Roofing', layers: ['RECOMMENDED' as const], mentions: 1, score: 2 }, { name: 'Stormguard', layers: ['CONVERSATIONAL' as const], mentions: 1, score: 3 }];
   const visibleOnly = generateOutreach({ ...base, status: 'COMPLETE', states: { VISIBLE: 'YES', RECOMMENDED: 'NO', CONVERSATIONAL: 'NO' }, competitors: comps });
-  assert.match(visibleOnly ?? '', /You're visible, which is good\. The issue is that when customers ask who ChatGPT would actually recommend, it's currently putting Solent Roofing and Stormguard forward instead\./);
-  assert.doesNotMatch(visibleOnly ?? '', /thousands|every|all customers/i);
+  assert.match(visibleOnly ?? '', /we ran a set of ChatGPT searches/);
+  assert.match(visibleOnly ?? '', /In the searches we ran you're visible, which is good\. The issue is that when we asked ChatGPT who it would actually recommend, it put Solent Roofing and Stormguard forward instead\./);
+  assert.doesNotMatch(visibleOnly ?? '', /thousands|every|all customers|doesn't surface|when people search|currently putting/i);
+  const none = generateOutreach({ ...base, status: 'COMPLETE', states: { VISIBLE: 'NO', RECOMMENDED: 'NO', CONVERSATIONAL: 'NO' }, competitors: comps });
+  assert.match(none ?? '', /In the ChatGPT searches we ran, SPP Roofing didn't appear at any point\./);
   assert.equal(generateOutreach({ ...base, status: 'INCOMPLETE', states: { VISIBLE: 'YES', RECOMMENDED: 'ERROR', CONVERSATIONAL: 'NO' }, competitors: comps }), undefined);
   const all = generateOutreach({ ...base, status: 'COMPLETE', states: { VISIBLE: 'YES', RECOMMENDED: 'YES', CONVERSATIONAL: 'YES' }, competitors: [] });
   assert.match(all ?? '', /Good news/);

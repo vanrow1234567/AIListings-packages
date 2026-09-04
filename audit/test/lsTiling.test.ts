@@ -9,7 +9,8 @@ import { MockChatGptProvider } from '../src/chatgpt/mockProvider.ts';
 import { EvidenceStore } from '../src/evidence/capture.ts';
 import { AuditStore } from '../src/persistence/store.ts';
 import { extractCandidates, type Candidate } from '../src/analysis/extract.ts';
-import { classifyCandidate, matchProspect, rankCompetitors, toMentions } from '../src/competitors/classify.ts';
+import { classifyCandidate, looksLikePlaceOrAddress, matchProspect, rankCompetitors, toMentions } from '../src/competitors/classify.ts';
+import { looksLikeName } from '../src/analysis/extract.ts';
 import { understandBusiness } from '../src/business/understand.ts';
 import type { AuditRecord, Prospect } from '../src/domain/types.ts';
 import { LS_TILING, conversationalTurn1, conversationalTurn2, lsTilingSite, recommendedResponse, visibleResponse } from './fixtures/lsTiling.ts';
@@ -51,6 +52,73 @@ test('LS-Tiling live evidence: prospect absent in all three layers -> NO / NO / 
     assert.equal(record.layers[l].prospectMatchEvidence, undefined, `${l} must carry no prospect evidence`);
     assert.equal(record.layers[l].entities.some((e) => e.kind === 'prospect'), false);
   }
+});
+
+const FALSE_BUSINESSES = [
+  'Wendover, Buckinghamshire',
+  'Pound Street, Wendover',
+  'London Road, Wendover',
+  'Work out exactly what needs tiling',
+  'Get 2–3 quotes',
+  'For tiles themselves',
+];
+const GENUINE_SUPPLIERS = ['Limartra Tiling and Restoration', 'SDB Tiling', 'Signature Tiling & Carpentry'];
+
+test('LS-Tiling: businessesSurfaced contains actual named suppliers only, in every layer', async () => {
+  const record = await runLsTiling();
+  assert.deepEqual([...record.layers.VISIBLE.businessesSurfaced].sort(), GENUINE_SUPPLIERS);
+  // The Recommended answer names two firms in prose and all three on its visible map card.
+  assert.deepEqual([...record.layers.RECOMMENDED.businessesSurfaced].sort(), GENUINE_SUPPLIERS);
+  assert.deepEqual([...record.layers.CONVERSATIONAL.businessesSurfaced].sort(), GENUINE_SUPPLIERS);
+  for (const l of ['VISIBLE', 'RECOMMENDED', 'CONVERSATIONAL'] as const) {
+    const surfaced = record.layers[l].businessesSurfaced;
+    for (const bad of FALSE_BUSINESSES) assert.ok(!surfaced.includes(bad), `${l} surfaced "${bad}"`);
+    for (const s of surfaced) {
+      assert.ok(!/,/.test(s), `${l}: "${s}" looks like a place/address`);
+      assert.ok(!/\d\s*[–-]\s*\d|reviews?|★/.test(s), `${l}: "${s}" looks like a count/rating`);
+      assert.ok(!/^(how|what|for|get|work|check|ask|look)\b/i.test(s), `${l}: "${s}" looks like advice`);
+    }
+    // Directories / marketplaces / review sites never enter businessesSurfaced.
+    for (const kind of ['directory', 'marketplace', 'review_site', 'informational', 'unrelated', 'uncertain'] as const) {
+      for (const e of record.layers[l].entities.filter((x) => x.kind === kind)) assert.ok(!surfaced.includes(e.name), `${l}: ${kind} "${e.name}" in businessesSurfaced`);
+    }
+  }
+  assert.deepEqual(record.topCompetitors.map((c) => c.name).sort(), GENUINE_SUPPLIERS);
+  // Layer verdicts unchanged by the hardening.
+  assert.equal(record.layers.VISIBLE.state, 'NO');
+  assert.equal(record.layers.RECOMMENDED.state, 'NO');
+  assert.equal(record.layers.CONVERSATIONAL.state, 'NO');
+});
+
+test('LS-Tiling: each false example is rejected at extraction or classified as non-business', async () => {
+  const p = await prospect();
+  for (const bad of FALSE_BUSINESSES) {
+    for (const source of ['bold', 'heading', 'list', 'link', 'text'] as const) {
+      if (!looksLikeName(bad)) continue; // rejected before it can ever become a candidate
+      const kind = classifyCandidate(cand(bad, source, source === 'link' ? 'www.google.com' : undefined), p);
+      assert.notEqual(kind, 'competitor', `"${bad}" (${source}) classified as competitor`);
+      assert.notEqual(kind, 'prospect', `"${bad}" (${source}) classified as prospect`);
+    }
+  }
+  assert.equal(looksLikeName('Work out exactly what needs tiling'), false);
+  assert.equal(looksLikeName('Get 2–3 quotes'), false);
+  assert.equal(looksLikeName('For tiles themselves'), false);
+  assert.equal(looksLikeName('4.9 ★ (37 reviews)'), false);
+  assert.equal(looksLikeName('Check reviews and insurance'), false);
+  assert.ok(looksLikePlaceOrAddress('Wendover, Buckinghamshire', 'Wendover'));
+  assert.ok(looksLikePlaceOrAddress('Pound Street, Wendover', 'Wendover'));
+  assert.ok(looksLikePlaceOrAddress('London Road, Wendover', 'Wendover'));
+  assert.ok(looksLikePlaceOrAddress('12 High Street', 'Wendover'));
+  assert.ok(looksLikePlaceOrAddress('HP22 6EJ', 'Wendover'));
+  assert.ok(!looksLikePlaceOrAddress('Wendover Tiling Ltd', 'Wendover'), 'a company named after its town is not an address');
+  assert.ok(!looksLikePlaceOrAddress('Signature Tiling & Carpentry', 'Wendover'));
+  // Genuine suppliers still pass every gate.
+  for (const good of GENUINE_SUPPLIERS) {
+    assert.ok(looksLikeName(good), good);
+    assert.equal(classifyCandidate(cand(good, 'bold'), p), 'competitor', good);
+  }
+  assert.equal(classifyCandidate(cand('Stone & Slate Co', 'bold'), p), 'competitor');
+  assert.equal(classifyCandidate(cand('Wendover Interiors', 'link', 'wendoverinteriors.co.uk'), p), 'competitor', 'visible name linking to its own site');
 });
 
 test('LS-Tiling: prospectPresent and businessesSurfaced are independent', async () => {
@@ -164,7 +232,8 @@ test('reanalyse: re-interpreting a stored audit corrects the old verdict without
   assert.equal(record.layers.CONVERSATIONAL.prospectPresent, 'NO');
   assert.ok(!record.topCompetitors.some((c) => /mapbox/i.test(c.name)));
   assert.match(record.outreachMessage ?? '', /Limartra Tiling and Restoration/);
-  assert.doesNotMatch(record.outreachMessage ?? '', /stale/);
+  assert.match(record.outreachMessage ?? '', /In the ChatGPT searches we ran/);
+  assert.doesNotMatch(record.outreachMessage ?? '', /stale|doesn't surface|when people search|currently putting/);
 });
 
 /**
