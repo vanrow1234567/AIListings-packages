@@ -12,7 +12,7 @@ import { MockChatGptProvider, type MockOptions } from '../src/chatgpt/mockProvid
 import { EvidenceStore } from '../src/evidence/capture.ts';
 import { AuditStore } from '../src/persistence/store.ts';
 import type { AuditRecord } from '../src/domain/types.ts';
-import { ensurePublicReport, issuePublicToken } from '../src/public/tracking.ts';
+import { ensurePublicReport, issuePublicToken, issueSessionNonce } from '../src/public/tracking.ts';
 import { LS_TILING, conversationalTurn1, conversationalTurn2, lsTilingSite, recommendedResponse, visibleResponse } from './fixtures/lsTiling.ts';
 
 let server: http.Server;
@@ -65,7 +65,8 @@ test('a COMPLETE audit gets a random public token and a publicUrl in its summary
   assert.match(token, /^[A-Za-z0-9_-]{43}$/, '32 random bytes, base64url');
   assert.ok(!token.toLowerCase().includes('tiling'));
   assert.ok(!token.includes(record.id) && !record.id.includes(token));
-  assert.equal(record.publicReport?.viewCount, 0);
+  assert.equal(record.publicReport?.pageRequestCount, 0);
+  assert.equal(record.publicReport?.engagedViewCount, 0);
   assert.equal(record.publicReport?.ctaClickCount, 0);
   const api = await get(`/api/audits/${record.id}`);
   assert.equal(JSON.parse(api.body).summary.publicUrl, `${PUBLIC_BASE}/a/${token}`);
@@ -99,28 +100,117 @@ test('an invalid token returns 404 without leaking anything', async () => {
   assert.equal((await get(`/a/${issuePublicToken()}/evidence/visible-1-1.png`)).status, 404);
 });
 
-test('first view sets firstViewedAt; repeat views increment the count and keep the first timestamp', async () => {
+const NONCE_RE = /\{session:"([A-Za-z0-9_-]{22})"\}/;
+function sessionOf(body: string): string {
+  const m = body.match(NONCE_RE);
+  assert.ok(m, 'rendered page carries a session nonce');
+  return m![1]!;
+}
+async function postEngaged(token: string, session: unknown): Promise<{ status: number; body: { ok: boolean; outcome?: string } }> {
+  const res = await fetch(`${base}/a/${token}/engaged`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ session }) });
+  return { status: res.status, body: (await res.json()) as { ok: boolean; outcome?: string } };
+}
+
+test('1. GET alone increases pageRequestCount but never engagedViewCount', async () => {
   const record = await runAudit(fixtureMock());
   const token = record.publicReport!.token;
   clock = new Date('2026-09-05T09:00:00.000Z');
-  const first = await get(`/a/${token}`);
-  assert.equal(first.status, 200);
-  let stored = (await store.get(record.id))!.publicReport!;
-  assert.equal(stored.firstViewedAt, '2026-09-05T09:00:00.000Z');
-  assert.equal(stored.lastViewedAt, '2026-09-05T09:00:00.000Z');
-  assert.equal(stored.viewCount, 1);
-
-  clock = new Date('2026-09-06T18:30:00.000Z');
+  await get(`/a/${token}`);
+  clock = new Date('2026-09-05T09:05:00.000Z');
   await get(`/a/${token}`);
   await get(`/a/${token}`);
-  stored = (await store.get(record.id))!.publicReport!;
-  assert.equal(stored.firstViewedAt, '2026-09-05T09:00:00.000Z', 'first view is never replaced');
-  assert.equal(stored.lastViewedAt, '2026-09-06T18:30:00.000Z');
-  assert.equal(stored.viewCount, 3);
-  assert.equal(stored.ctaClickCount, 0, 'viewing is not clicking');
+  const r = (await store.get(record.id))!.publicReport!;
+  assert.equal(r.pageRequestCount, 3);
+  assert.equal(r.firstRequestedAt, '2026-09-05T09:00:00.000Z');
+  assert.equal(r.lastRequestedAt, '2026-09-05T09:05:00.000Z');
+  assert.equal(r.engagedViewCount, 0, 'a bot fetching the HTML is not engagement');
+  assert.equal(r.firstEngagedAt, undefined);
+  assert.equal(r.lastEngagedAt, undefined);
+  assert.equal(r.ctaClickCount, 0);
+  const tracking = JSON.parse((await get(`/api/audits/${record.id}/tracking`)).body);
+  assert.equal(tracking.pageRequestCount, 3);
+  assert.equal(tracking.engagedViewCount, 0);
+  assert.equal(tracking.firstEngagedAt, null);
 });
 
-test('CTA click is tracked and redirects to the configured destination', async () => {
+test('2. POST engaged with the rendered session creates firstEngagedAt', async () => {
+  const record = await runAudit(fixtureMock());
+  const token = record.publicReport!.token;
+  clock = new Date('2026-09-05T10:00:00.000Z');
+  const page = await get(`/a/${token}`);
+  const session = sessionOf(page.body);
+  assert.ok(!page.body.includes(record.id));
+  clock = new Date('2026-09-05T10:00:02.000Z');
+  const res = await postEngaged(token, session);
+  assert.equal(res.status, 200);
+  assert.deepEqual(res.body, { ok: true, outcome: 'counted' });
+  const r = (await store.get(record.id))!.publicReport!;
+  assert.equal(r.firstEngagedAt, '2026-09-05T10:00:02.000Z');
+  assert.equal(r.lastEngagedAt, '2026-09-05T10:00:02.000Z');
+  assert.equal(r.engagedViewCount, 1);
+  assert.equal(r.pageRequestCount, 1);
+  assert.deepEqual(r.issuedSessions, [], 'a used session cannot be replayed');
+});
+
+test('3. duplicate engagement from the same rendered page counts once', async () => {
+  const record = await runAudit(fixtureMock());
+  const token = record.publicReport!.token;
+  clock = new Date('2026-09-05T11:00:00.000Z');
+  const session = sessionOf((await get(`/a/${token}`)).body);
+  clock = new Date('2026-09-05T11:00:02.000Z');
+  assert.equal((await postEngaged(token, session)).body.outcome, 'counted');
+  clock = new Date('2026-09-05T11:00:09.000Z');
+  for (let i = 0; i < 5; i++) assert.equal((await postEngaged(token, session)).body.outcome, 'duplicate');
+  const r = (await store.get(record.id))!.publicReport!;
+  assert.equal(r.engagedViewCount, 1);
+  assert.equal(r.firstEngagedAt, '2026-09-05T11:00:02.000Z');
+  assert.equal(r.lastEngagedAt, '2026-09-05T11:00:02.000Z', 'a duplicate does not move lastEngagedAt');
+});
+
+test('4. a fresh page session counts again and keeps the first engagement timestamp', async () => {
+  const record = await runAudit(fixtureMock());
+  const token = record.publicReport!.token;
+  clock = new Date('2026-09-06T08:00:00.000Z');
+  const s1 = sessionOf((await get(`/a/${token}`)).body);
+  await postEngaged(token, s1);
+  clock = new Date('2026-09-07T08:00:00.000Z');
+  const s2 = sessionOf((await get(`/a/${token}`)).body);
+  assert.notEqual(s1, s2, 'each render gets its own session');
+  clock = new Date('2026-09-07T08:00:02.000Z');
+  assert.equal((await postEngaged(token, s2)).body.outcome, 'counted');
+  const r = (await store.get(record.id))!.publicReport!;
+  assert.equal(r.engagedViewCount, 2);
+  assert.equal(r.pageRequestCount, 2);
+  assert.equal(r.firstEngagedAt, '2026-09-06T08:00:00.000Z');
+  assert.equal(r.lastEngagedAt, '2026-09-07T08:00:02.000Z');
+});
+
+test('5. invalid tokens and forged sessions cannot create engagement', async () => {
+  const record = await runAudit(fixtureMock());
+  const token = record.publicReport!.token;
+  const session = sessionOf((await get(`/a/${token}`)).body);
+  // Wrong token, real session
+  assert.equal((await postEngaged(issuePublicToken(), session)).status, 404);
+  // Right token, session never issued by the server
+  const forged = await postEngaged(token, issueSessionNonce());
+  assert.equal(forged.status, 400);
+  assert.equal(forged.body.outcome, 'unknown_session');
+  // Garbage bodies
+  for (const bad of [undefined, null, 42, '', 'x', '<script>', 'a'.repeat(200)]) assert.equal((await postEngaged(token, bad)).status, 400, String(bad));
+  const raw = await fetch(`${base}/a/${token}/engaged`, { method: 'POST', body: 'not json' });
+  assert.equal(raw.status, 400);
+  const r = (await store.get(record.id))!.publicReport!;
+  assert.equal(r.engagedViewCount, 0);
+  assert.equal(r.firstEngagedAt, undefined);
+  // GET on the engaged route is not a thing; the issued session is still valid afterwards.
+  assert.equal((await get(`/a/${token}/engaged`)).status, 404);
+  assert.equal((await postEngaged(token, session)).body.outcome, 'counted');
+  // An INCOMPLETE audit has no token at all, so nothing can be posted for it.
+  const broken = await runAudit({ ...fixtureMock(), openErrors: { 0: new Error('boom') } });
+  assert.equal(broken.publicReport, undefined);
+});
+
+test('6. CTA click is still tracked and redirects to the configured destination', async () => {
   const record = await runAudit(fixtureMock());
   const token = record.publicReport!.token;
   clock = new Date('2026-09-07T12:00:00.000Z');
@@ -132,7 +222,8 @@ test('CTA click is tracked and redirects to the configured destination', async (
   const stored = (await store.get(record.id))!.publicReport!;
   assert.equal(stored.ctaClickedAt, '2026-09-07T12:00:00.000Z', 'first click timestamp kept');
   assert.equal(stored.ctaClickCount, 2);
-  assert.equal(stored.viewCount, 0, 'clicking the CTA is not a page view');
+  assert.equal(stored.pageRequestCount, 0, 'clicking the CTA is not a page request');
+  assert.equal(stored.engagedViewCount, 0, 'clicking the CTA is not an engaged view');
 
   const tracking = JSON.parse((await get(`/api/audits/${record.id}/tracking`)).body);
   assert.equal(tracking.publicUrl, `${PUBLIC_BASE}/a/${token}`);
@@ -171,6 +262,9 @@ test('public HTML shows the sales content and no internal or debug information',
   assert.ok(!body.includes('Pound Street'), 'response fragments');
   assert.match(body, /We asked: <em>“Tiling companies in Wendover”/);
   assert.ok(!/lead_id|mapbox|openstreetmap/i.test(body));
+  // First-party beacon only: same-origin engaged endpoint, no third-party analytics.
+  assert.match(body, new RegExp(`"/a/${token}/engaged"`));
+  assert.ok(!/googletagmanager|google-analytics|gtag\(|fbq\(|hotjar|segment\.com|plausible|matomo|https?:\/\/[^"']+\.js/i.test(body), 'third-party scripts');
 });
 
 test('screenshots are reachable only through the valid public audit relationship', async () => {

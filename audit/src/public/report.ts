@@ -4,7 +4,36 @@ import { publicPath } from './tracking.ts';
 
 export interface PublicReportOptions {
   token: string;
+  /** Per-render session nonce; the page quotes it when reporting genuine engagement. */
+  session?: string;
   ctaLabel?: string;
+  /** Milliseconds of continuous visibility before the page reports engagement (default 2000). */
+  engagementDelayMs?: number;
+}
+
+/**
+ * First-party engagement beacon. Fires once per rendered page, only after the
+ * document has been loaded AND visible for the delay without interruption.
+ * Link-preview bots and scanners that merely fetch the HTML never trigger it.
+ */
+function engagementScript(base: string, session: string, delayMs: number): string {
+  return `<script>
+(function(){
+  var sent=false,timer=null,url=${JSON.stringify(`${base}/engaged`)},body=JSON.stringify({session:${JSON.stringify(session)}});
+  function send(){
+    if(sent)return;sent=true;
+    try{fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:body,keepalive:true,credentials:'same-origin'}).catch(function(){});}catch(e){}
+  }
+  function arm(){
+    if(sent||timer)return;
+    if(document.visibilityState!=='visible')return;
+    timer=setTimeout(function(){timer=null;if(document.visibilityState==='visible')send();},${delayMs});
+  }
+  function disarm(){if(timer){clearTimeout(timer);timer=null;}}
+  document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible')arm();else disarm();});
+  if(document.readyState==='complete')arm();else window.addEventListener('load',arm);
+})();
+</script>`;
 }
 
 const esc = (s: unknown): string =>
@@ -65,6 +94,7 @@ export function renderPublicReport(record: AuditRecord, opts: PublicReportOption
   const base = publicPath(opts.token);
   const cta = opts.ctaLabel ?? 'Talk to us about improving your AI visibility';
   const date = formatDate(record.updatedAt);
+  const beacon = opts.session ? engagementScript(base, opts.session, opts.engagementDelayMs ?? 2000) : '';
   const competitors = record.topCompetitors.map((c) => c.name);
   const states: Record<Layer, LayerState> = {
     VISIBLE: record.layers.VISIBLE.state,
@@ -179,6 +209,7 @@ export function renderPublicReport(record: AuditRecord, opts: PublicReportOption
 
   <footer>Results reflect the answers ChatGPT displayed when we ran these tests${date ? ` on ${esc(date)}` : ''}. ChatGPT answers vary between sessions; screenshots are provided so you can see exactly what we saw. Prepared for ${esc(name)}, ${esc(location)}.</footer>
 </main>
+${beacon}
 </body>
 </html>`;
 }

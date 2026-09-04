@@ -9,7 +9,7 @@ import type { PlaywrightChatGptProvider } from './chatgpt/playwrightProvider.ts'
 import type { EvidenceStore } from './evidence/capture.ts';
 import type { AuditStore } from './persistence/store.ts';
 import { publicEvidenceFiles, renderPublicReport } from './public/report.ts';
-import { isPubliclyAvailable, recordCtaClick, recordView, trackingState } from './public/tracking.ts';
+import { isPubliclyAvailable, recordCtaClick, recordEngagement, recordPageRequest, trackingState } from './public/tracking.ts';
 
 export interface AppDeps {
   provider: ChatGptProvider & Partial<Pick<PlaywrightChatGptProvider, 'connectForSignIn'>>;
@@ -63,15 +63,30 @@ export function createApp(deps: AppDeps): http.RequestListener {
     const url = new URL(req.url ?? '/', 'http://localhost');
     try {
       // ---------- prospect-facing public report ----------
+      const engaged = url.pathname.match(/^\/a\/([A-Za-z0-9_-]+)\/engaged$/);
+      if (engaged && req.method === 'POST') {
+        const record = await deps.store.findByPublicToken(engaged[1] ?? '');
+        if (!isPubliclyAvailable(record)) return json(res, 404, { ok: false });
+        let session = '';
+        try {
+          const body = (await readJson(req)) as { session?: unknown };
+          session = typeof body.session === 'string' ? body.session : '';
+        } catch {
+          return json(res, 400, { ok: false });
+        }
+        const outcome = recordEngagement(record.publicReport, session, now);
+        if (outcome === 'counted') await deps.store.save(record);
+        return json(res, outcome === 'unknown_session' ? 400 : 200, { ok: outcome !== 'unknown_session', outcome });
+      }
       const pub = url.pathname.match(/^\/a\/([A-Za-z0-9_-]+)(?:\/(cta|evidence\/([A-Za-z0-9_.-]+\.png)))?$/);
       if (pub && req.method === 'GET') {
         const record = await deps.store.findByPublicToken(pub[1] ?? '');
         if (!isPubliclyAvailable(record)) return html(res, 404, NOT_FOUND_HTML);
         const action = pub[2];
         if (!action) {
-          recordView(record.publicReport, now);
+          const session = recordPageRequest(record.publicReport, now);
           await deps.store.save(record);
-          return html(res, 200, renderPublicReport(record, { token: record.publicReport.token }));
+          return html(res, 200, renderPublicReport(record, { token: record.publicReport.token, session }));
         }
         if (action === 'cta') {
           recordCtaClick(record.publicReport, now);

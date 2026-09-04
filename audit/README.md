@@ -79,9 +79,19 @@ visible differs from recommended, expandable evidence screenshots and a CTA. It 
 ids, provider details, classification data, paths, errors or ChatGPT transcripts. Screenshots are
 served only at `/a/:token/evidence/:file` for files that belong to that audit.
 
-Tracking per report: `firstViewedAt`, `lastViewedAt`, `viewCount` on each page view; `ctaClickedAt`,
-`ctaClickCount` on each CTA click (`GET /a/:token/cta` records the click and redirects to
-`PUBLIC_CTA_URL`). `GET /api/audits/:id/tracking` returns that state for the later CRM push.
+Tracking per report, in two separate tiers:
+
+- **Requests (diagnostics):** `pageRequestCount`, `firstRequestedAt`, `lastRequestedAt` on every valid
+  `GET /a/:token`, including link-preview bots, messaging clients and scanners.
+- **Engagement (use this for the CRM):** `firstEngagedAt`, `lastEngagedAt`, `engagedViewCount`. The page
+  carries a per-render session nonce and posts a first-party beacon to `POST /a/:token/engaged` only
+  after the document has loaded and stayed visible for about 2 seconds. A nonce the server did not
+  issue is rejected; a nonce that already counted is ignored, so one rendered page counts once while a
+  refresh or a new visit counts again. No third-party analytics.
+- **CTA:** `ctaClickedAt`, `ctaClickCount` on `GET /a/:token/cta`, which redirects to `PUBLIC_CTA_URL`.
+
+`GET /api/audits/:id/tracking` returns all of it. GoHighLevel notification must key off
+`firstEngagedAt` / `engagedViewCount`, never `pageRequestCount`.
 
 Set `PUBLIC_BASE_URL` to the externally reachable origin (default `http://localhost:<PORT>`).
 
@@ -117,7 +127,7 @@ If chatgpt.com changes its markup, update `SELECTORS` in `src/chatgpt/playwright
 
 ```bash
 npm run typecheck
-npm test            # 45 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 4 adapter plumbing tests against a local DOM double
+npm test            # 49 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 6 real-browser tests (adapter plumbing against a local DOM double, engagement beacon)
 npm run build
 ```
 

@@ -187,11 +187,20 @@ export interface Evidence {
 export interface PublicReport {
   token: string;
   createdAt: string;
-  firstViewedAt?: string;
-  lastViewedAt?: string;
-  viewCount: number;
+  /** Diagnostics: every valid GET of the report, including link-preview bots and scanners. */
+  pageRequestCount: number;
+  firstRequestedAt?: string;
+  lastRequestedAt?: string;
+  /** Confirmed engagement: the rendered page stayed visible for ~2s and reported back. Use these for CRM. */
+  firstEngagedAt?: string;
+  lastEngagedAt?: string;
+  engagedViewCount: number;
   ctaClickedAt?: string;
   ctaClickCount: number;
+  /** Session nonces embedded in rendered pages that have not yet reported engagement (most recent last). */
+  issuedSessions: string[];
+  /** Session nonces that have already counted, so a repeat event from the same page counts once. */
+  engagedSessions: string[];
 }
 
 export interface AuditRecord {

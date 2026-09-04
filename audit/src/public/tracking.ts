@@ -1,10 +1,19 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { AuditRecord, PublicReport } from '../domain/types.ts';
 
 /** 256 bits of randomness, URL-safe, no business or storage information. */
 export function issuePublicToken(): string {
   return randomBytes(32).toString('base64url');
 }
+
+/** Per-render session nonce embedded in the page; an engagement event must quote one the server issued. */
+export function issueSessionNonce(): string {
+  return randomBytes(16).toString('base64url');
+}
+
+/** Bound the stored nonce lists so a scanner hammering the URL cannot grow the record without limit. */
+const MAX_ISSUED_SESSIONS = 500;
+const MAX_ENGAGED_SESSIONS = 2000;
 
 /**
  * Give a COMPLETE audit a public report (idempotent). Never issues one for an
@@ -15,7 +24,15 @@ export function issuePublicToken(): string {
 export function ensurePublicReport(record: AuditRecord, now: () => Date = () => new Date()): PublicReport | undefined {
   if (record.status !== 'COMPLETE') return undefined;
   if (!record.publicReport) {
-    record.publicReport = { token: issuePublicToken(), createdAt: now().toISOString(), viewCount: 0, ctaClickCount: 0 };
+    record.publicReport = {
+      token: issuePublicToken(),
+      createdAt: now().toISOString(),
+      pageRequestCount: 0,
+      engagedViewCount: 0,
+      ctaClickCount: 0,
+      issuedSessions: [],
+      engagedSessions: [],
+    };
   }
   return record.publicReport;
 }
@@ -24,17 +41,52 @@ export function isPubliclyAvailable(record: AuditRecord | undefined): record is 
   return !!record && record.status === 'COMPLETE' && !!record.publicReport;
 }
 
-export function recordView(report: PublicReport, now: () => Date = () => new Date()): void {
+/**
+ * A GET of the report. Counts every request (bots included) for diagnostics and
+ * issues the session nonce the page will quote when it reports genuine engagement.
+ */
+export function recordPageRequest(report: PublicReport, now: () => Date = () => new Date()): string {
   const iso = now().toISOString();
-  if (!report.firstViewedAt) report.firstViewedAt = iso;
-  report.lastViewedAt = iso;
-  report.viewCount += 1;
+  if (!report.firstRequestedAt) report.firstRequestedAt = iso;
+  report.lastRequestedAt = iso;
+  report.pageRequestCount = (report.pageRequestCount ?? 0) + 1; // records stored before this field existed
+  const nonce = issueSessionNonce();
+  report.issuedSessions = [...(report.issuedSessions ?? []), nonce].slice(-MAX_ISSUED_SESSIONS);
+  return nonce;
+}
+
+export type EngagementOutcome = 'counted' | 'duplicate' | 'unknown_session';
+
+/**
+ * The rendered page reported ~2s of visible time. Counts once per issued session:
+ * a nonce the server never issued is rejected, one that already counted is ignored.
+ */
+export function recordEngagement(report: PublicReport, session: string, now: () => Date = () => new Date()): EngagementOutcome {
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(session)) return 'unknown_session';
+  const engaged = report.engagedSessions ?? [];
+  if (engaged.some((s) => safeEqual(s, session))) return 'duplicate';
+  const issued = report.issuedSessions ?? [];
+  const index = issued.findIndex((s) => safeEqual(s, session));
+  if (index === -1) return 'unknown_session';
+  const iso = now().toISOString();
+  if (!report.firstEngagedAt) report.firstEngagedAt = iso;
+  report.lastEngagedAt = iso;
+  report.engagedViewCount = (report.engagedViewCount ?? 0) + 1;
+  report.issuedSessions = issued.filter((_, i) => i !== index);
+  report.engagedSessions = [...engaged, session].slice(-MAX_ENGAGED_SESSIONS);
+  return 'counted';
+}
+
+function safeEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ba.length === bb.length && timingSafeEqual(ba, bb);
 }
 
 export function recordCtaClick(report: PublicReport, now: () => Date = () => new Date()): void {
   const iso = now().toISOString();
   if (!report.ctaClickedAt) report.ctaClickedAt = iso;
-  report.ctaClickCount += 1;
+  report.ctaClickCount = (report.ctaClickCount ?? 0) + 1;
 }
 
 export function publicPath(token: string): string {
@@ -45,7 +97,10 @@ export function publicUrl(baseUrl: string, token: string): string {
   return `${baseUrl.replace(/\/$/, '')}${publicPath(token)}`;
 }
 
-/** Tracking state for the future CRM push. Internal only. */
+/**
+ * Tracking state for the future CRM push. Internal only. CRM logic must key off
+ * firstEngagedAt / engagedViewCount (confirmed human engagement), never pageRequestCount.
+ */
 export function trackingState(record: AuditRecord, baseUrl: string) {
   const r = record.publicReport;
   return {
@@ -54,9 +109,12 @@ export function trackingState(record: AuditRecord, baseUrl: string) {
     status: record.status,
     publicUrl: isPubliclyAvailable(record) ? publicUrl(baseUrl, record.publicReport.token) : null,
     createdAt: r?.createdAt ?? null,
-    firstViewedAt: r?.firstViewedAt ?? null,
-    lastViewedAt: r?.lastViewedAt ?? null,
-    viewCount: r?.viewCount ?? 0,
+    pageRequestCount: r?.pageRequestCount ?? 0,
+    firstRequestedAt: r?.firstRequestedAt ?? null,
+    lastRequestedAt: r?.lastRequestedAt ?? null,
+    firstEngagedAt: r?.firstEngagedAt ?? null,
+    lastEngagedAt: r?.lastEngagedAt ?? null,
+    engagedViewCount: r?.engagedViewCount ?? 0,
     ctaClickedAt: r?.ctaClickedAt ?? null,
     ctaClickCount: r?.ctaClickCount ?? 0,
   };
