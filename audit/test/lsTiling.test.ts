@@ -237,6 +237,69 @@ test('reanalyse: re-interpreting a stored audit corrects the old verdict without
 });
 
 /**
+ * Live Azure audit acea6ebc (LS-Tiling, 2026-09-04): the Conversational answer listed job
+ * descriptions from a price guide ("Kitchen splashback", "Hallway/kitchen floor") next to
+ * businesses, and the prospect appeared under a trading-name variant "Ls tiling & Patios".
+ */
+const liveJobPattern = {
+  text:
+    'Typical tiling jobs and what people in Wendover pay:\n' +
+    'Kitchen splashback – £250–£450\n' +
+    'Hallway/kitchen floor – £600–£1,200\n' +
+    'Bathroom walls and floor – £1,500–£3,000\n' +
+    'Tilers people mention locally:\n' +
+    'Ls tiling & Patios – Wendover, wall and floor tiling plus patios.\n' +
+    'SDB Tiling – Aylesbury.\n' +
+    'Limartra Tiling and Restoration – Aylesbury.',
+  html:
+    '<p>Typical tiling jobs and what people in Wendover pay:</p><ul>' +
+    '<li><p><strong>Kitchen splashback</strong> – £250–£450</p></li>' +
+    '<li><p><strong>Hallway/kitchen floor</strong> – £600–£1,200</p></li>' +
+    '<li><p><strong>Bathroom walls and floor</strong> – £1,500–£3,000</p></li></ul>' +
+    '<p>Tilers people mention locally:</p><ul>' +
+    '<li><p><strong>Ls tiling &amp; Patios</strong> – Wendover, wall and floor tiling plus patios.</p></li>' +
+    '<li><p><strong>SDB Tiling</strong> – Aylesbury.</p></li>' +
+    '<li><p><strong>Limartra Tiling and Restoration</strong> – Aylesbury.</p></li></ul>',
+  links: [],
+};
+
+test('live pattern: job descriptions are never businesses', async () => {
+  const p = await prospect();
+  for (const job of ['Kitchen splashback', 'Hallway/kitchen floor', 'Bathroom walls and floor', 'Kitchen floor', 'Bathroom wall tiling', 'Wet room floor', 'Patio and steps', 'Hallway floor tiles']) {
+    for (const source of ['bold', 'list', 'heading', 'text'] as const) {
+      if (!looksLikeName(job)) continue;
+      const kind = classifyCandidate(cand(job, source), p);
+      assert.notEqual(kind, 'competitor', `"${job}" (${source}) -> ${kind}`);
+      assert.notEqual(kind, 'prospect', `"${job}" (${source}) -> ${kind}`);
+    }
+  }
+  const mentions = toMentions(extractCandidates(liveJobPattern), p, 'CONVERSATIONAL', 1);
+  const surfaced = mentions.filter((m) => m.kind === 'competitor' || m.kind === 'prospect').map((m) => m.name).sort();
+  assert.deepEqual(surfaced, ['LS-Tiling', 'Limartra Tiling and Restoration', 'SDB Tiling']);
+  for (const bad of ['Kitchen splashback', 'Hallway/kitchen floor', 'Bathroom walls and floor']) assert.ok(!surfaced.includes(bad), bad);
+});
+
+test('live pattern: "Ls tiling & Patios" is a trading-name variant of LS-Tiling, with evidence', async () => {
+  const p = await prospect();
+  const m = matchProspect(cand('Ls tiling & Patios', 'bold'), p, 1);
+  assert.equal(m?.matchedBy, 'business_name', 'identity "LS" + trade "tiling" present; "Patios" is a service descriptor, not a different identity');
+  assert.equal(m?.snippet, 'Ls tiling & Patios');
+  assert.equal(matchProspect(cand('LS Tiling & Patios', 'list'), p)?.matchedBy, 'business_name');
+  // Still not the prospect: a different identity, or the same initials in a different trade.
+  assert.equal(matchProspect(cand('SDB Tiling & Patios', 'bold'), p), undefined);
+  assert.equal(matchProspect(cand('LS Plumbing & Patios', 'bold'), p), undefined);
+  assert.equal(matchProspect(cand('LS Patios', 'bold'), p), undefined, 'short identity needs the prospect\'s own trade word alongside it');
+  assert.equal(matchProspect(cand('Patios & Tiling', 'bold'), p), undefined, 'no identity token at all');
+  // Through the pipeline the layer becomes YES with the exact visible snippet recorded.
+  const mentions = toMentions(extractCandidates(liveJobPattern), p, 'CONVERSATIONAL', 1);
+  const prospectMention = mentions.find((x) => x.kind === 'prospect');
+  assert.ok(prospectMention?.evidence);
+  assert.equal(prospectMention.evidence.snippet, 'Ls tiling & Patios');
+  assert.match(prospectMention.evidence.context, /Ls tiling & Patios – Wendover/);
+  assert.equal(prospectMention.evidence.source, 'bold');
+});
+
+/**
  * Optional: if real captured audit records are dropped into test/fixtures/live/*.json
  * (copied from audit/.data/audits/), re-interpret them and assert the invariants.
  */

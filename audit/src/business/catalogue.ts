@@ -153,6 +153,14 @@ export const TRADE_WORDS = [
   'handyman', 'property', 'home', 'improvements', 'interiors', 'exteriors', 'stone', 'marble', 'mosaic', 'ceramics',
   'plumbing', 'heating', 'roofing', 'roofers', 'building', 'builders', 'construction', 'electrical', 'electricians',
   'landscaping', 'gardens', 'cleaning', 'cleaners', 'locksmiths', 'removals', 'dental', 'accountants', 'solicitors',
+  // Rooms, surfaces and jobs. A candidate made only of these ("Kitchen splashback", "Hallway/kitchen floor")
+  // is a job description from a price guide or portfolio, never a business.
+  'splashback', 'splashbacks', 'hallway', 'hallways', 'wall', 'walls', 'floors', 'ensuite', 'en-suite', 'shower',
+  'showers', 'wetroom', 'wetrooms', 'wet', 'room', 'rooms', 'utility', 'porch', 'conservatory', 'patio', 'patios',
+  'decking', 'terrace', 'steps', 'grout', 'grouting', 'regrout', 'regrouting', 'underfloor', 'porcelain', 'ceramic',
+  'slate', 'quarry', 'laminate', 'vinyl', 'lvt', 'carpet', 'carpets', 'skirting', 'worktop', 'worktops', 'cabinets',
+  'fitting', 'fitted', 'fit', 'refit', 'refits', 'refurb', 'makeover', 'upgrade', 'replacement', 'replacements',
+  'living', 'lounge', 'bedroom', 'bedrooms', 'downstairs', 'upstairs', 'garage', 'loft', 'extension', 'extensions',
 ];
 
 export const GENERIC_BUSINESS_WORDS = [
