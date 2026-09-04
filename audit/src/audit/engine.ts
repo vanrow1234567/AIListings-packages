@@ -17,7 +17,7 @@ import { understandBusiness, type WebsiteFetcher } from '../business/understand.
 import { brandDiagnosticPrompt, generateLayerPrompts, nextConversationalFollowUp } from '../prompts/generate.ts';
 import { extractCandidates } from '../analysis/extract.ts';
 import { rankCompetitors, toMentions } from '../competitors/classify.ts';
-import { competitorNames, decideAuditStatus, decideLayerState } from './decide.ts';
+import { businessesSurfaced, competitorNames, decideAuditStatus, decideLayerState, prospectEvidence } from './decide.ts';
 import { generateOutreach } from '../outreach/generate.ts';
 import type { EvidenceStore } from '../evidence/capture.ts';
 import type { AuditStore } from '../persistence/store.ts';
@@ -34,7 +34,7 @@ export interface EngineDeps {
 const MAX_FOLLOW_UPS = 3;
 
 function emptyLayer(layer: Layer): LayerResult {
-  return { layer, state: 'NOT_TESTED', turns: [], entities: [], competitorsMentioned: [] };
+  return { layer, state: 'NOT_TESTED', turns: [], entities: [], businessesSurfaced: [], competitorsMentioned: [] };
 }
 
 export function newAuditRecord(request: AuditRequest, providerName: string, now = new Date()): AuditRecord {
@@ -167,8 +167,7 @@ export class AuditEngine {
           result.entities.push(...this.analyse(last, u, layer));
         }
       }
-      result.state = decideLayerState(result.entities);
-      result.competitorsMentioned = competitorNames(result.entities);
+      finaliseLayer(result);
     } catch (err) {
       if (err instanceof SignInRequiredError) {
         result.state = 'SIGN_IN_REQUIRED';
@@ -251,6 +250,64 @@ export class AuditEngine {
   }
 }
 
+/**
+ * Set the layer's conclusion from its entities. prospectPresent and businessesSurfaced are
+ * independent: three competitors surfaced with the prospect absent is prospectPresent = NO.
+ */
+export function finaliseLayer(result: LayerResult): void {
+  result.state = decideLayerState(result.entities);
+  result.prospectPresent = result.state === 'YES' ? 'YES' : 'NO';
+  result.businessesSurfaced = businessesSurfaced(result.entities);
+  result.competitorsMentioned = competitorNames(result.entities);
+  const evidence = prospectEvidence(result.entities);
+  if (evidence.length > 0) result.prospectMatchEvidence = evidence;
+  else delete result.prospectMatchEvidence;
+}
+
+/**
+ * Re-run the interpretation layer (extraction, classification, decisions, competitors,
+ * outreach) over the responses already captured in a stored audit. The browser is not
+ * touched; prompts, screenshots and displayed responses are preserved. Layers that
+ * never produced a usable response keep their ERROR / SIGN_IN_REQUIRED / NOT_TESTED state.
+ */
+export function reanalyseRecord(record: AuditRecord): AuditRecord {
+  const u = record.understanding;
+  if (!u) return record;
+  if (!u.prospect.serviceTerms) {
+    u.prospect.serviceTerms = [u.service, ...u.service.split(/\s+/)].map((s) => s.toLowerCase());
+  }
+  for (const layer of LAYERS) {
+    const result = record.layers[layer];
+    if (!isConclusiveState(result.state)) continue;
+    result.entities = result.turns.flatMap((t) => toMentions(extractCandidates(t.response), u.prospect, layer, t.index));
+    finaliseLayer(result);
+  }
+  if (record.brandDiagnostic?.turn) {
+    const mentions = toMentions(extractCandidates(record.brandDiagnostic.turn.response), u.prospect, 'BRAND_DIAGNOSTIC', 0);
+    record.brandDiagnostic.state = decideLayerState(mentions);
+  }
+  record.topCompetitors = rankCompetitors(LAYERS.flatMap((l) => record.layers[l].entities), u.prospect.location);
+  const decision = decideAuditStatus(record.layers);
+  record.status = decision.status;
+  if (decision.reason) record.incompleteReason = decision.reason;
+  else delete record.incompleteReason;
+  const message = generateOutreach({
+    prospect: u.prospect,
+    service: u.service,
+    status: record.status,
+    states: { VISIBLE: record.layers.VISIBLE.state, RECOMMENDED: record.layers.RECOMMENDED.state, CONVERSATIONAL: record.layers.CONVERSATIONAL.state },
+    competitors: record.topCompetitors,
+  });
+  if (message) record.outreachMessage = message;
+  else delete record.outreachMessage;
+  record.updatedAt = new Date().toISOString();
+  return record;
+}
+
+function isConclusiveState(state: LayerResult['state']): boolean {
+  return state === 'YES' || state === 'NO';
+}
+
 export function summarise(record: AuditRecord) {
   return {
     id: record.id,
@@ -264,6 +321,9 @@ export function summarise(record: AuditRecord) {
     RECOMMENDED: record.layers.RECOMMENDED.state,
     CONVERSATIONAL: record.layers.CONVERSATIONAL.state,
     topCompetitors: record.topCompetitors.map((c) => c.name),
+    layers: Object.fromEntries(
+      LAYERS.map((l) => [l, { prospectPresent: record.layers[l].prospectPresent ?? null, businessesSurfaced: record.layers[l].businessesSurfaced, prospectMatchEvidence: record.layers[l].prospectMatchEvidence ?? [] }]),
+    ),
     outreachMessage: record.outreachMessage,
     evidence: record.evidence,
     incompleteReason: record.incompleteReason,

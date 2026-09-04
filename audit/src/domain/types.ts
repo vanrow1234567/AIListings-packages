@@ -44,6 +44,8 @@ export interface Prospect {
   /** Registrable domain without protocol / www, e.g. "spproofing.co.uk". */
   domain: string;
   location: string;
+  /** Words describing what the prospect does (e.g. "tiling"). Never identity evidence on their own. */
+  serviceTerms?: string[];
 }
 
 /** What the business sells, derived from name + website + location. */
@@ -102,6 +104,18 @@ export type EntityKind =
   | 'unrelated'
   | 'uncertain';
 
+/** Why a layer was marked YES: the exact user-visible snippet that named the prospect. */
+export interface ProspectMatchEvidence {
+  /** Exact visible text that matched (e.g. "LS-Tiling" or "ls-tiling.co.uk"). */
+  snippet: string;
+  /** Surrounding visible text for human verification against the screenshot. */
+  context: string;
+  /** Where in the rendered answer the snippet was found. */
+  source: 'bold' | 'heading' | 'link' | 'list' | 'text';
+  matchedBy: 'business_name' | 'name_alias' | 'visible_domain';
+  turnIndex: number;
+}
+
 export interface EntityMention {
   /** Name as it appeared. */
   raw: string;
@@ -114,6 +128,8 @@ export interface EntityMention {
   turnIndex: number;
   /** Domain if the mention came with a link. */
   domain?: string;
+  /** Present only on kind === 'prospect'. */
+  evidence?: ProspectMatchEvidence;
 }
 
 export interface LayerResult {
@@ -123,6 +139,15 @@ export interface LayerResult {
   turns: ConversationTurn[];
   /** Entities identified in this layer's responses. */
   entities: EntityMention[];
+  /**
+   * Whether the PROSPECT itself was visibly surfaced. Independent of businessesSurfaced:
+   * a layer can surface three competitors and still be prospectPresent = NO.
+   */
+  prospectPresent?: 'YES' | 'NO';
+  /** Every genuine, user-visible named business surfaced in this layer (prospect included when present). */
+  businessesSurfaced: string[];
+  /** Required whenever state === 'YES': the visible text that proved the prospect was there. */
+  prospectMatchEvidence?: ProspectMatchEvidence[];
   /** Names of businesses (genuine competitors) mentioned/recommended in this layer. */
   competitorsMentioned: string[];
   error?: string;

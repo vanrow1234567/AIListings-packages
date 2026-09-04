@@ -145,6 +145,7 @@ export async function understandBusiness(
   const source: BusinessUnderstanding['source'] = fromName ? 'name' : fromSite ? 'website' : 'fallback';
 
   if (profile) {
+    prospect.serviceTerms = [...new Set([...profile.genericWords, ...profile.service.toLowerCase().split(/\s+/)])];
     return {
       prospect,
       service: profile.service,
@@ -164,6 +165,8 @@ export async function understandBusiness(
     .filter((w) => w.length > 3 && !['ltd', 'limited', 'services', 'group', 'company'].includes(w));
   const service = words.at(-1) ?? 'local services';
   notes.push(`No catalogue match; falling back to "${service}".`);
+  // The fallback service word (e.g. "tiling" from "LS-Tiling") describes the trade; it is never identity evidence.
+  prospect.serviceTerms = [service, `${service}s`, service.replace(/ing$/, 'er'), service.replace(/ing$/, 'ers')];
   return {
     prospect,
     service,

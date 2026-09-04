@@ -9,9 +9,11 @@ import { decideAuditStatus } from '../src/audit/decide.ts';
 import { generateOutreach } from '../src/outreach/generate.ts';
 import { validateRequest } from '../src/api/validate.ts';
 import type { EntityMention, LayerResult, Prospect } from '../src/domain/types.ts';
+import type { Candidate } from '../src/analysis/extract.ts';
 import { SPP, roofingSite } from './helpers.ts';
 
-const prospect: Prospect = { name: 'SPP Roofing', website: 'https://www.spproofing.co.uk/', domain: 'spproofing.co.uk', location: 'Southampton' };
+const prospect: Prospect = { name: 'SPP Roofing', website: 'https://www.spproofing.co.uk/', domain: 'spproofing.co.uk', location: 'Southampton', serviceTerms: ['roofing', 'roofers', 'roofer', 'roof'] };
+const cand = (raw: string, source: Candidate['source'], domain?: string): Candidate => ({ raw, source, context: raw, ...(domain ? { domain } : {}) });
 
 test('business understanding: roofing from name, market from location', async () => {
   const u = await understandBusiness(SPP, { fetcher: async () => roofingSite });
@@ -88,16 +90,16 @@ test('normalisation: variants merge, different businesses do not', () => {
 });
 
 test('classification: prospect by name variant and by domain; directories are not competitors', () => {
-  assert.equal(classifyCandidate({ raw: 'SPP Roofing Ltd', source: 'bold' }, prospect), 'prospect');
-  assert.equal(classifyCandidate({ raw: 'spproofing.co.uk', source: 'link', domain: 'spproofing.co.uk' }, prospect), 'prospect');
-  assert.equal(classifyCandidate({ raw: 'Checkatrade', source: 'bold' }, prospect), 'directory');
-  assert.equal(classifyCandidate({ raw: 'Rated People', source: 'bold' }, prospect), 'marketplace');
-  assert.equal(classifyCandidate({ raw: 'NFRC', source: 'bold' }, prospect), 'informational');
-  assert.equal(classifyCandidate({ raw: 'Solent Roofing', source: 'text' }, prospect), 'competitor');
-  assert.equal(classifyCandidate({ raw: 'Southampton', source: 'bold' }, prospect), 'unrelated');
-  assert.equal(classifyCandidate({ raw: 'Southampton Roofers', source: 'bold' }, prospect), 'uncertain');
-  assert.equal(classifyCandidate({ raw: 'Southampton Roofing Ltd', source: 'bold' }, prospect), 'competitor');
-  assert.equal(classifyCandidate({ raw: 'Stormguard', source: 'bold' }, prospect), 'uncertain', 'single bare word is uncertain');
+  assert.equal(classifyCandidate(cand('SPP Roofing Ltd', 'bold'), prospect), 'prospect');
+  assert.equal(classifyCandidate(cand('spproofing.co.uk', 'link', 'spproofing.co.uk'), prospect), 'prospect');
+  assert.equal(classifyCandidate(cand('Checkatrade', 'bold'), prospect), 'directory');
+  assert.equal(classifyCandidate(cand('Rated People', 'bold'), prospect), 'marketplace');
+  assert.equal(classifyCandidate(cand('NFRC', 'bold'), prospect), 'informational');
+  assert.equal(classifyCandidate(cand('Solent Roofing', 'text'), prospect), 'competitor');
+  assert.equal(classifyCandidate(cand('Southampton', 'bold'), prospect), 'unrelated');
+  assert.equal(classifyCandidate(cand('Southampton Roofers', 'bold'), prospect), 'uncertain');
+  assert.equal(classifyCandidate(cand('Southampton Roofing Ltd', 'bold'), prospect), 'competitor');
+  assert.equal(classifyCandidate(cand('Stormguard', 'bold'), prospect), 'uncertain', 'single bare word is uncertain');
 });
 
 test('ranking prefers Conversational, then Recommended, then recurrence; never pads', () => {
@@ -114,7 +116,7 @@ test('ranking prefers Conversational, then Recommended, then recurrence; never p
 
 test('toMentions merges variants inside one response', () => {
   const mentions = toMentions(
-    [{ raw: 'ABC Roofing Ltd', source: 'bold' }, { raw: 'ABC Roofing', source: 'text' }, { raw: 'ABC Roofing Southampton', source: 'list' }],
+    [cand('ABC Roofing Ltd', 'bold'), cand('ABC Roofing', 'text'), cand('ABC Roofing Southampton', 'list')],
     prospect,
     'VISIBLE',
     0,
@@ -124,7 +126,7 @@ test('toMentions merges variants inside one response', () => {
 });
 
 test('decision: any non-conclusive layer makes the audit INCOMPLETE; sign-in wins', () => {
-  const lr = (layer: LayerResult['layer'], state: LayerResult['state']): LayerResult => ({ layer, state, turns: [], entities: [], competitorsMentioned: [] });
+  const lr = (layer: LayerResult['layer'], state: LayerResult['state']): LayerResult => ({ layer, state, turns: [], entities: [], businessesSurfaced: [], competitorsMentioned: [] });
   assert.equal(decideAuditStatus({ VISIBLE: lr('VISIBLE', 'YES'), RECOMMENDED: lr('RECOMMENDED', 'NO'), CONVERSATIONAL: lr('CONVERSATIONAL', 'NO') }).status, 'COMPLETE');
   assert.equal(decideAuditStatus({ VISIBLE: lr('VISIBLE', 'YES'), RECOMMENDED: lr('RECOMMENDED', 'ERROR'), CONVERSATIONAL: lr('CONVERSATIONAL', 'NO') }).status, 'INCOMPLETE');
   assert.equal(decideAuditStatus({ VISIBLE: lr('VISIBLE', 'SIGN_IN_REQUIRED'), RECOMMENDED: lr('RECOMMENDED', 'NOT_TESTED'), CONVERSATIONAL: lr('CONVERSATIONAL', 'NOT_TESTED') }).status, 'SIGN_IN_REQUIRED');

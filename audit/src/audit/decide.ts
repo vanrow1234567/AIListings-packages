@@ -1,11 +1,18 @@
-import type { AuditStatus, EntityMention, Layer, LayerResult, LayerState } from '../domain/types.ts';
+import type { AuditStatus, EntityMention, Layer, LayerResult, LayerState, ProspectMatchEvidence } from '../domain/types.ts';
+
+/** The visible evidence that the prospect appeared, if any. */
+export function prospectEvidence(entities: EntityMention[]): ProspectMatchEvidence[] {
+  return entities.flatMap((e) => (e.kind === 'prospect' && e.evidence ? [e.evidence] : []));
+}
 
 /**
- * Decide a layer's state from its mentions. Only called after ChatGPT returned a
- * usable response; technical failures are set to ERROR / SIGN_IN_REQUIRED by the engine.
+ * Decide a layer's state from its mentions. YES requires explicit, user-visible evidence
+ * that the PROSPECT itself was surfaced. Surfacing other businesses never makes it YES.
+ * Only called after ChatGPT returned a usable response; technical failures are set to
+ * ERROR / SIGN_IN_REQUIRED by the engine.
  */
 export function decideLayerState(entities: EntityMention[]): LayerState {
-  return entities.some((e) => e.kind === 'prospect') ? 'YES' : 'NO';
+  return prospectEvidence(entities).length > 0 ? 'YES' : 'NO';
 }
 
 export function isConclusive(state: LayerState): boolean {
@@ -31,6 +38,7 @@ export function decideAuditStatus(layers: Record<Layer, LayerResult>): {
   return { status: 'COMPLETE' };
 }
 
+/** Genuine competitors surfaced (deduplicated, display names). */
 export function competitorNames(entities: EntityMention[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -41,4 +49,10 @@ export function competitorNames(entities: EntityMention[]): string[] {
     out.push(e.name);
   }
   return out;
+}
+
+/** Every genuine, user-visible named business surfaced: the prospect (when present) plus competitors. */
+export function businessesSurfaced(entities: EntityMention[]): string[] {
+  const prospect = entities.find((e) => e.kind === 'prospect' && e.evidence);
+  return [...(prospect ? [prospect.name] : []), ...competitorNames(entities)];
 }

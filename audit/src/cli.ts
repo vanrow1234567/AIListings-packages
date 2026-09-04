@@ -1,4 +1,4 @@
-import { AuditEngine, newAuditRecord, summarise } from './audit/engine.ts';
+import { AuditEngine, newAuditRecord, reanalyseRecord, summarise } from './audit/engine.ts';
 import { createProvider, createStores } from './config.ts';
 
 const log = (m: string) => console.error(`${new Date().toISOString()} ${m}`);
@@ -32,7 +32,20 @@ async function main(): Promise<void> {
       console.log(JSON.stringify(summarise(record), null, 2));
       return;
     }
-    console.error('commands: connect | status | audit');
+    if (cmd === 'reanalyse') {
+      const [id] = args;
+      const record = id ? await store.get(id) : undefined;
+      if (!record) {
+        console.error('usage: reanalyse <auditId>   (re-interprets the stored responses; no browser)');
+        process.exitCode = 2;
+        return;
+      }
+      reanalyseRecord(record);
+      await store.save(record);
+      console.log(JSON.stringify(summarise(record), null, 2));
+      return;
+    }
+    console.error('commands: connect | status | audit | reanalyse');
     process.exitCode = 2;
   } finally {
     await provider.dispose();

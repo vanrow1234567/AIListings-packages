@@ -138,6 +138,23 @@ export const SERVICE_CATALOGUE: ServiceProfile[] = [
   },
 ];
 
+/**
+ * Words that describe a trade rather than identify a business. A candidate made only of
+ * these (plus location / legal words) is a description such as "Tiling" or "Wendover Tilers",
+ * never evidence that a particular prospect appeared.
+ */
+export const TRADE_WORDS = [
+  'tiling', 'tiler', 'tilers', 'tiles', 'tile', 'flooring', 'floors', 'floor', 'plastering', 'plasterer', 'plasterers',
+  'decorating', 'decorators', 'decorator', 'painting', 'painters', 'painter', 'joinery', 'joiners', 'carpentry',
+  'carpenter', 'carpenters', 'bricklaying', 'bricklayers', 'scaffolding', 'glazing', 'windows', 'doors', 'kitchens',
+  'bathrooms', 'bathroom', 'kitchen', 'fencing', 'paving', 'driveways', 'drainage', 'groundworks', 'demolition',
+  'surveying', 'surveyors', 'architects', 'architecture', 'photography', 'catering', 'restoration', 'renovation',
+  'renovations', 'refurbishment', 'maintenance', 'repairs', 'repair', 'installations', 'installation', 'installers',
+  'handyman', 'property', 'home', 'improvements', 'interiors', 'exteriors', 'stone', 'marble', 'mosaic', 'ceramics',
+  'plumbing', 'heating', 'roofing', 'roofers', 'building', 'builders', 'construction', 'electrical', 'electricians',
+  'landscaping', 'gardens', 'cleaning', 'cleaners', 'locksmiths', 'removals', 'dental', 'accountants', 'solicitors',
+];
+
 export const GENERIC_BUSINESS_WORDS = [
   'ltd',
   'limited',

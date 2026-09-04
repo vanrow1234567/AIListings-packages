@@ -1,6 +1,6 @@
-import { GENERIC_BUSINESS_WORDS, SERVICE_CATALOGUE } from '../business/catalogue.ts';
+import { GENERIC_BUSINESS_WORDS, SERVICE_CATALOGUE, TRADE_WORDS } from '../business/catalogue.ts';
 
-const SERVICE_WORDS = new Set(SERVICE_CATALOGUE.flatMap((p) => p.genericWords));
+const SERVICE_WORDS = new Set([...SERVICE_CATALOGUE.flatMap((p) => p.genericWords), ...TRADE_WORDS]);
 const GENERIC = new Set(GENERIC_BUSINESS_WORDS);
 
 export function tokens(s: string): string[] {
@@ -31,13 +31,14 @@ export function nameKey(name: string, location: string): string {
 }
 
 /** Tokens that identify a business rather than describe what it does. */
-export function distinctiveTokens(name: string, location: string): string[] {
+export function distinctiveTokens(name: string, location: string, extraServiceTerms: readonly string[] = []): string[] {
   const loc = locationTokens(location);
-  return tokens(name).filter((t) => !GENERIC.has(t) && !loc.has(t) && !SERVICE_WORDS.has(t) && t !== '&');
+  const extra = new Set(extraServiceTerms.map((t) => t.toLowerCase()));
+  return tokens(name).filter((t) => !GENERIC.has(t) && !loc.has(t) && !SERVICE_WORDS.has(t) && !extra.has(t) && t !== '&');
 }
 
-export function isServiceWord(t: string): boolean {
-  return SERVICE_WORDS.has(t);
+export function isServiceWord(t: string, extraServiceTerms: readonly string[] = []): boolean {
+  return SERVICE_WORDS.has(t) || extraServiceTerms.includes(t);
 }
 
 /**

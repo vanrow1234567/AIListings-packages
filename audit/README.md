@@ -52,6 +52,33 @@ GET  /evidence/:id/:file    screenshot PNGs
 States: `YES`, `NO`, `NOT_TESTED`, `ERROR`, `SIGN_IN_REQUIRED`. Audit status: `COMPLETE`,
 `INCOMPLETE` (any layer not YES/NO; no outreach message is generated), `SIGN_IN_REQUIRED`.
 
+### What YES means
+
+A layer is `YES` only when the **prospect itself** is visibly named in ChatGPT's displayed answer for
+that layer. Each layer stores two independent facts:
+
+- `prospectPresent` — YES/NO for the prospect alone;
+- `businessesSurfaced[]` — every genuine, user-visible named business in that layer's responses.
+
+`CONVERSATIONAL prospectPresent = NO` with `businessesSurfaced = [Limartra Tiling and Restoration,
+SDB Tiling, Signature Tiling & Carpentry]` is a normal, correct result: ChatGPT recommended others.
+
+Every `YES` carries `prospectMatchEvidence[]`: the exact visible snippet, its surrounding text, where it
+was found (bold / heading / list / link text / prose) and how it matched (`business_name`,
+`name_alias`, `visible_domain`). Admissible evidence is the business name or a defensible alias, or the
+prospect's own domain shown as text. Hidden hrefs, map/citation infrastructure, generic trade words
+("Tiling", "Wendover Tilers") and approximate resemblance never count. Raw hrefs are never candidates,
+so Mapbox / OpenStreetMap / Google Maps / ChatGPT links cannot become competitors.
+
+### Re-interpreting a stored audit
+
+```bash
+npm run reanalyse -- <auditId>     # re-runs extraction, classification, decisions, competitors, outreach
+```
+
+Uses the responses and screenshots already captured; the browser is not opened. Useful after an
+interpretation fix, and for checking a past verdict against its screenshots.
+
 ## Modules
 
 ```
@@ -75,7 +102,7 @@ If chatgpt.com changes its markup, update `SELECTORS` in `src/chatgpt/playwright
 
 ```bash
 npm run typecheck
-npm test            # 27 logic scenarios (mock provider) + 4 adapter plumbing tests against a local DOM double
+npm test            # 35 logic tests (mock provider, incl. the LS-Tiling regression fixture) + 4 adapter plumbing tests against a local DOM double
 npm run build
 ```
 
