@@ -98,7 +98,9 @@ function pushName(out: Candidate[], raw: string, source: Candidate['source'], vi
   const cleaned = raw.replace(/[*_`"“”]+/g, '').replace(/\s+/g, ' ').replace(/[:.,;–—-]+$/, '').trim();
   const parts = splitJoinedNames(cleaned);
   if (parts.length > 1) {
-    for (const part of parts) pushOne(out, part, source, visibleText, domain, href);
+    // One link cannot be attributed to two separate businesses: the split names keep their
+    // visible-text evidence but not the shared href / domain.
+    for (const part of parts) pushOne(out, part, source, visibleText);
     return;
   }
   pushOne(out, cleaned, source, visibleText, domain, href);
@@ -175,11 +177,11 @@ const SECTION_WORDS =
   /\b(recommendations?|options?|guide|guides|tips?|advice|checklist|summary|overview|faqs?|notes?|steps?|questions?|considerations?|factors?|signs?|causes?|pros|cons|verdict|conclusion|takeaways?|alternatives?|approach|approaches|comparison|examples?|sources?|references?|disclaimer|caveats?)\b/i;
 
 /**
- * Scope descriptions from price guides and quotes: a quantifier plus a room / area noun
- * ("Whole room", "Entire house", "Single wall"). Deliberately narrow: the quantifier list is
- * closed and the noun must be a room or area, so company names are unaffected.
+ * The observed production defect: a price-guide scope line "Whole room". Deliberately narrow:
+ * a closed quantifier list followed by exactly "room" / "rooms". Other nouns are not covered
+ * because combinations such as "Full House" or "Small Jobs" can be legitimate business names.
  */
-const SCOPE_PHRASE = /^(whole|entire|full|complete|single|one|half|part|partial|small|large|medium)\s+(room|rooms|house|home|property|floor|floors|wall|walls|bathroom|bathrooms|kitchen|kitchens|hallway|area|areas|space|spaces|refit|refurb|job|jobs|project|projects)$/i;
+const SCOPE_PHRASE = /^(whole|entire|full|single|one)\s+(room|rooms)$/i;
 
 export function looksLikeScopePhrase(name: string): boolean {
   return SCOPE_PHRASE.test(name.trim());

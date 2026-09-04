@@ -155,13 +155,13 @@ test('API validation mirrors the future CRM contract', () => {
 });
 
 test('extraction: scope phrases are rejected; joined names split only when both sides are multi-word names', () => {
-  // A. "Whole room" and equivalents are price-guide scope descriptions, not businesses.
-  for (const scope of ['Whole room', 'Entire room', 'Full room', 'Single room', 'One room', 'Whole house', 'Entire bathroom']) {
+  // A. "Whole room" and its direct equivalents are price-guide scope descriptions, not businesses.
+  for (const scope of ['Whole room', 'Entire room', 'Full room', 'Single room', 'One room', 'Whole rooms', 'whole ROOM']) {
     assert.ok(looksLikeScopePhrase(scope), scope);
     assert.equal(looksLikeName(scope), false, scope);
   }
-  // Company names that merely start with one of those words are untouched.
-  for (const ok of ['Whole Room Interiors Ltd', 'Complete Tiling Solutions', 'Single Malt Bar', 'One Stop Tiles']) {
+  // The rule is narrow: two-word combinations that could be trading names are not rejected.
+  for (const ok of ['Small Jobs', 'Large Projects', 'Full House', 'One Property', 'Whole Room Interiors Ltd', 'Complete Tiling Solutions', 'Single Malt Bar', 'One Stop Tiles', 'Entire Bathrooms', 'Whole Home Flooring']) {
     assert.equal(looksLikeScopePhrase(ok), false, ok);
     assert.ok(looksLikeName(ok), ok);
   }
@@ -199,4 +199,35 @@ test('extraction: scope phrases are rejected; joined names split only when both 
   const lewis = joined.find((c) => c.raw === 'Lewis Cowburn Tiling');
   assert.match(cedar?.context ?? '', /Cedar Ceramics and Lewis Cowburn Tiling/);
   assert.match(lewis?.context ?? '', /Lewis Cowburn Tiling in Aylesbury/);
+});
+
+test('extraction: a split LINK candidate does not pass its href/domain to either business', () => {
+  const html =
+    '<ul><li><p><a href="https://www.cedarceramics.co.uk/">Cedar Ceramics and Lewis Cowburn Tiling</a> – Aylesbury.</p></li>' +
+    '<li><p><a href="https://www.sdbtiling.co.uk/">SDB Tiling</a> – Aylesbury.</p></li>' +
+    '<li><p><a href="https://signaturetiling.co.uk/">Signature Tiling and Carpentry</a> – Chesham.</p></li>' +
+    '<li><p><a href="https://lstilingpatios.example/">Ls tiling &amp; Patios</a> – Wendover.</p></li></ul>';
+  const text = 'Cedar Ceramics and Lewis Cowburn Tiling – Aylesbury.\nSDB Tiling – Aylesbury.\nSignature Tiling and Carpentry – Chesham.\nLs tiling & Patios – Wendover.';
+  const cands = extractCandidates({ text, html, links: ['https://www.cedarceramics.co.uk/', 'https://www.sdbtiling.co.uk/', 'https://signaturetiling.co.uk/', 'https://lstilingpatios.example/'] });
+  const links = cands.filter((c) => c.source === 'link');
+  const byName = (n: string) => links.filter((c) => c.raw === n);
+  // The joined link splits into the two visible names...
+  assert.equal(byName('Cedar Ceramics').length, 1);
+  assert.equal(byName('Lewis Cowburn Tiling').length, 1);
+  assert.equal(byName('Cedar Ceramics and Lewis Cowburn Tiling').length, 0);
+  // ...and neither inherits the ambiguous destination.
+  for (const n of ['Cedar Ceramics', 'Lewis Cowburn Tiling']) {
+    assert.equal(byName(n)[0]?.href, undefined, `${n} href`);
+    assert.equal(byName(n)[0]?.domain, undefined, `${n} domain`);
+    assert.match(byName(n)[0]?.context ?? '', /Cedar Ceramics and Lewis Cowburn Tiling/, 'visible evidence preserved');
+  }
+  // A normal single linked business keeps its href and domain exactly.
+  assert.equal(byName('SDB Tiling')[0]?.href, 'https://www.sdbtiling.co.uk/');
+  assert.equal(byName('SDB Tiling')[0]?.domain, 'sdbtiling.co.uk');
+  // Names containing "and" / "&" that are one business stay one linked candidate with their link intact.
+  assert.equal(byName('Signature Tiling and Carpentry').length, 1);
+  assert.equal(byName('Signature Tiling and Carpentry')[0]?.domain, 'signaturetiling.co.uk');
+  assert.equal(byName('Ls tiling & Patios').length, 1);
+  assert.equal(byName('Ls tiling & Patios')[0]?.href, 'https://lstilingpatios.example/');
+  assert.ok(!links.some((c) => c.raw === 'Signature Tiling' || c.raw === 'Carpentry' || c.raw === 'Patios'));
 });
