@@ -3,27 +3,51 @@ import path from 'node:path';
 import { AuditEngine } from './audit/engine.ts';
 import { createApp } from './app.ts';
 import { PROJECT_ROOT, createIdentityProvider, createProvider, createStores } from './config.ts';
+import { createPublicBoundary } from './public/boundary.ts';
 
 const log = (m: string) => console.log(`${new Date().toISOString()} ${m}`);
-const port = Number(process.env.PORT ?? 3210);
+
+const internalPort = Number(process.env.PORT ?? 3210);
+const publicPort = Number(process.env.PUBLIC_PORT ?? 3211);
+
 const provider = createProvider(log);
 const { evidence, store } = createStores();
-const engine = new AuditEngine({ provider, evidence, store, identity: createIdentityProvider(log), log });
 
-const server = http.createServer(
-  createApp({
-    provider,
-    engine,
-    store,
-    evidence,
-    uiFile: path.join(PROJECT_ROOT, 'src', 'ui', 'index.html'),
-    publicBaseUrl: process.env.PUBLIC_BASE_URL ?? `http://localhost:${port}`,
-    ctaUrl: process.env.PUBLIC_CTA_URL ?? 'https://packages.ailistings.co.uk/',
-    log,
-  }),
+const engine = new AuditEngine({
+  provider,
+  evidence,
+  store,
+  identity: createIdentityProvider(log),
+  log,
+});
+
+const app = createApp({
+  provider,
+  engine,
+  store,
+  evidence,
+  uiFile: path.join(PROJECT_ROOT, 'src', 'ui', 'index.html'),
+  publicBaseUrl:
+    process.env.PUBLIC_BASE_URL ?? `http://localhost:${publicPort}`,
+  ctaUrl:
+    process.env.PUBLIC_CTA_URL ?? 'https://packages.ailistings.co.uk/',
+  log,
+});
+
+const internalServer = http.createServer(app);
+const publicServer = http.createServer(createPublicBoundary(app));
+
+internalServer.listen(internalPort, '127.0.0.1', () =>
+  log(
+    `AIListings internal audit listening on http://127.0.0.1:${internalPort} (provider: ${provider.name})`,
+  ),
 );
 
-server.listen(port, () => log(`AIListings audit listening on http://localhost:${port} (provider: ${provider.name})`));
+publicServer.listen(publicPort, '127.0.0.1', () =>
+  log(
+    `AIListings public reports listening on http://127.0.0.1:${publicPort}`,
+  ),
+);
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, async () => {
