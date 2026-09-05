@@ -36,6 +36,7 @@ export function createGhlIngress(
       return;
     }
 
+    req.headers['x-ailistings-ghl-ingress'] = '1';
     req.url = '/api/audits';
     app(req, res);
   };

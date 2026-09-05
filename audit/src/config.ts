@@ -10,6 +10,7 @@ import { ChainedIdentityProvider } from './identity/chain.ts';
 import { LocalBusinessIdentityProvider } from './identity/localBusiness.ts';
 import { DataForSeoMapsProvider } from './identity/dataforseo.ts';
 import { prospectFactsSource } from './identity/prospectFacts.ts';
+import { resolveAuditIntake } from './intake/resolve.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** Project root (audit/) regardless of running from src/ or dist/. */
@@ -63,4 +64,54 @@ export function createStores(): { evidence: EvidenceStore; store: AuditStore } {
     evidence: new EvidenceStore(path.join(DATA_DIR, 'evidence')),
     store: new AuditStore(path.join(DATA_DIR, 'audits')),
   };
+}
+/**
+ * Resolves GHL audit intake into the strict AuditRequest expected by the core audit.
+ * Supplied location wins; otherwise website facts are checked; DataForSEO Maps is
+ * used only when configured. Failure to resolve location remains fail-closed.
+ */
+export function createGhlIntakeResolver(
+  log: (m: string) => void = () => undefined,
+) {
+  const facts = prospectFactsSource();
+  const vendor = (process.env.AUDIT_LOCAL_BUSINESS_PROVIDER ?? '').toLowerCase();
+
+  if (vendor === 'dataforseo') {
+    const login = process.env.DATAFORSEO_LOGIN;
+    const password = process.env.DATAFORSEO_PASSWORD;
+
+    if (login && password) {
+      const maps = new DataForSeoMapsProvider({
+        login,
+        password,
+        ...(process.env.DATAFORSEO_ENDPOINT
+          ? { endpoint: process.env.DATAFORSEO_ENDPOINT }
+          : {}),
+        ...(process.env.DATAFORSEO_LOCATION_NAME
+          ? { locationName: process.env.DATAFORSEO_LOCATION_NAME }
+          : {}),
+      });
+
+      log('[ghl-intake] website facts + DataForSEO Maps location resolution enabled');
+
+      return (body: unknown) =>
+        resolveAuditIntake(body, {
+          facts,
+          maps,
+        });
+    }
+
+    log(
+      '[ghl-intake] DataForSEO configured but credentials missing; website-only location resolution',
+    );
+  } else if (vendor) {
+    log(
+      `[ghl-intake] unknown local-business provider "${vendor}"; website-only location resolution`,
+    );
+  }
+
+  return (body: unknown) =>
+    resolveAuditIntake(body, {
+      facts,
+    });
 }

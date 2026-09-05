@@ -90,6 +90,7 @@ function stateWord(state: LayerState): string {
 export function renderPublicReport(record: AuditRecord, opts: PublicReportOptions): string {
   const name = record.request.business_name;
   const location = record.request.location;
+  const website = record.understanding?.prospect.domain || record.request.website;
   const service = record.understanding?.service ?? 'your service';
   const base = publicPath(opts.token);
   const cta = opts.ctaLabel ?? 'Talk to us about improving your AI visibility';
@@ -160,6 +161,10 @@ export function renderPublicReport(record: AuditRecord, opts: PublicReportOption
   .card.YES .v,.tag.YES{color:var(--yes)} .card.NO .v,.tag.NO{color:var(--no)}
   .card p{margin:0;color:#334155;font-size:14px}
   .box{background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px}
+  .details{margin:0;display:grid;gap:9px}
+  .details div{display:grid;grid-template-columns:110px 1fr;gap:12px}
+  .details dt{font-weight:700;color:var(--muted)}
+  .details dd{margin:0;font-weight:600;overflow-wrap:anywhere}
   .comp{margin:0;padding-left:22px;font-size:18px} .comp li{margin:4px 0;font-weight:600}
   .muted{color:var(--muted);font-size:14px}
   details{background:#fff;border:1px solid var(--line);border-radius:12px;padding:0 18px;margin:10px 0}
@@ -179,6 +184,16 @@ export function renderPublicReport(record: AuditRecord, opts: PublicReportOption
   <p class="brand">AIListings · AI Visibility Report</p>
   <h1>${headline}</h1>
   <p class="lede">We tested how the ChatGPT consumer app answers when someone in ${esc(location)} asks about ${esc(service)}${date ? `, on ${esc(date)}` : ''}. Here is what it showed.</p>
+
+  <h2>Business details used for this audit</h2>
+  <div class="box">
+    <dl class="details">
+      <div><dt>Business</dt><dd>${esc(name)}</dd></div>
+      <div><dt>Location</dt><dd>${esc(location)}</dd></div>
+      <div><dt>Website</dt><dd>${esc(website)}</dd></div>
+    </dl>
+    <p class="muted" style="margin:18px 0 0"><b>Not quite right?</b> This audit uses information supplied about your business together with publicly available information we could identify online. If any of these details are incorrect or missing, that is useful evidence in itself. It may indicate that information about your business is inconsistent, unclear or difficult for search engines and AI systems to interpret accurately.</p>
+  </div>
 
   <h2>What we tested</h2>
   <div class="box">

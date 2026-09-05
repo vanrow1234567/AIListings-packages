@@ -2,7 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { AuditEngine } from './audit/engine.ts';
 import { createApp } from './app.ts';
-import { PROJECT_ROOT, createIdentityProvider, createProvider, createStores } from './config.ts';
+import { PROJECT_ROOT, createGhlIntakeResolver, createIdentityProvider, createProvider, createStores } from './config.ts';
 import { createGhlIngress } from './ghl/ingress.ts';
 import { createPublicBoundary } from './public/boundary.ts';
 
@@ -34,6 +34,7 @@ const app = createApp({
   ctaUrl:
     process.env.PUBLIC_CTA_URL ?? 'https://packages.ailistings.co.uk/',
   log,
+  resolveGhlIntake: createGhlIntakeResolver(log),
 });
 
 const internalServer = http.createServer(app);

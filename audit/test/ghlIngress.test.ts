@@ -41,12 +41,12 @@ test('GHL ingress rejects everything except POST /ghl/audits', async () => {
   const ctx = await startServer();
 
   try {
-    for (const [method, path] of [
+    for (const [method, path] of ([
       ['GET', '/ghl/audits'],
       ['POST', '/'],
       ['POST', '/api/audits'],
       ['POST', '/ghl/other'],
-    ]) {
+    ] as const)) {
       const response = await fetch(`${ctx.base}${path}`, {
         method,
       });

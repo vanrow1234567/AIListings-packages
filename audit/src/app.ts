@@ -2,6 +2,8 @@ import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { AuditEngine } from './audit/engine.ts';
+import type { AuditRequest } from './domain/types.ts';
+import type { IntakeResult } from './intake/resolve.ts';
 import { newAuditRecord, summarise } from './audit/engine.ts';
 import { validateRequest } from './api/validate.ts';
 import type { ChatGptProvider } from './chatgpt/provider.ts';
@@ -23,6 +25,8 @@ export interface AppDeps {
   ctaUrl: string;
   now?: () => Date;
   log?: (m: string) => void;
+  /** Used only for requests authenticated through the GHL ingress. */
+  resolveGhlIntake?: (body: unknown) => Promise<IntakeResult>;
 }
 
 function json(res: http.ServerResponse, status: number, body: unknown): void {
@@ -111,9 +115,34 @@ export function createApp(deps: AppDeps): http.RequestListener {
         return html(res, 200, await readFile(deps.uiFile));
       }
       if (req.method === 'POST' && url.pathname === '/api/audits') {
-        const parsed = validateRequest(await readJson(req));
-        if (!parsed.ok) return json(res, 400, { error: parsed.error });
-        const record = newAuditRecord(parsed.value, deps.provider.name, now());
+        const body = await readJson(req);
+        let auditRequest: AuditRequest;
+
+        if (
+          req.headers['x-ailistings-ghl-ingress'] === '1' &&
+          deps.resolveGhlIntake
+        ) {
+          const resolved = await deps.resolveGhlIntake(body);
+
+          if (!resolved.ok) {
+            return json(res, resolved.status, {
+              error: resolved.error,
+              message: resolved.message,
+            });
+          }
+
+          auditRequest = resolved.value;
+        } else {
+          const parsed = validateRequest(body);
+
+          if (!parsed.ok) {
+            return json(res, 400, { error: parsed.error });
+          }
+
+          auditRequest = parsed.value;
+        }
+
+        const record = newAuditRecord(auditRequest, deps.provider.name, now());
         await deps.store.save(record);
         void enqueue(async () => {
           try {

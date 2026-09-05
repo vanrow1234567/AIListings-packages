@@ -242,6 +242,10 @@ test('public HTML shows the sales content and no internal or debug information',
   // Required content
   assert.match(body, /LS-Tiling/);
   assert.match(body, /What we tested/);
+  assert.match(body, /Business details used for this audit/);
+  assert.match(body, /Not quite right\?/);
+  assert.match(body, /publicly available information/);
+  assert.match(body, /incorrect or missing/);
   assert.match(body, /Visible<\/div><div class="v">NO/);
   assert.match(body, /Recommended<\/div><div class="v">NO/);
   assert.match(body, /Conversational<\/div><div class="v">NO/);
