@@ -3,12 +3,14 @@ import path from 'node:path';
 import { AuditEngine } from './audit/engine.ts';
 import { createApp } from './app.ts';
 import { PROJECT_ROOT, createIdentityProvider, createProvider, createStores } from './config.ts';
+import { createGhlIngress } from './ghl/ingress.ts';
 import { createPublicBoundary } from './public/boundary.ts';
 
 const log = (m: string) => console.log(`${new Date().toISOString()} ${m}`);
 
 const internalPort = Number(process.env.PORT ?? 3210);
 const publicPort = Number(process.env.PUBLIC_PORT ?? 3211);
+const ghlPort = Number(process.env.GHL_PORT ?? 3212);
 
 const provider = createProvider(log);
 const { evidence, store } = createStores();
@@ -48,6 +50,20 @@ publicServer.listen(publicPort, '127.0.0.1', () =>
     `AIListings public reports listening on http://127.0.0.1:${publicPort}`,
   ),
 );
+
+const ghlToken = process.env.GHL_INGRESS_TOKEN;
+
+if (ghlToken) {
+  const ghlServer = http.createServer(createGhlIngress(app, ghlToken));
+
+  ghlServer.listen(ghlPort, '127.0.0.1', () =>
+    log(
+      `AIListings GHL ingress listening on http://127.0.0.1:${ghlPort}`,
+    ),
+  );
+} else {
+  log('[ghl] GHL_INGRESS_TOKEN missing; GHL ingress disabled');
+}
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, async () => {
