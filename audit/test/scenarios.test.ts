@@ -56,7 +56,10 @@ test('3. prospect appearing Conversationally in a follow-up turn', async () => {
   // The advice fixture ends by offering help, so the natural follow-up accepts it.
   assert.equal(record.layers.CONVERSATIONAL.turns[1]?.prompt, 'Yes please. Who would you recommend I speak to?');
   assert.equal(provider.transcript.filter((t) => t.conversation === 2).length, 2);
-  assert.match(record.outreachMessage ?? '', /described a real customer problem/);
+  assert.match(
+    record.outreachMessage ?? '',
+    /after we described the problem and then asked who we should speak to/,
+  );
 });
 
 test('4. directory mixed with real competitors', async () => {

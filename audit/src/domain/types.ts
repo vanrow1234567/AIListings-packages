@@ -340,10 +340,20 @@ export interface SemanticVisualReview {
   model: string;
 }
 
+export interface TurnProspectReconciliation {
+  turnIndex: number;
+  deterministicProspectPresent: 'YES' | 'NO' | 'UNRESOLVED';
+  visualProspectPresent: VisualProspectState;
+  confidence: number;
+  agreed: boolean;
+}
+
 export interface LayerEvidenceReconciliation {
   layer: Layer;
   deterministicProspectPresent: 'YES' | 'NO' | 'UNRESOLVED';
   visualProspectPresent: VisualProspectState;
+  /** Hard prospect-presence comparison for every captured turn. */
+  turnProspectComparisons: TurnProspectReconciliation[];
   /** Parser/DOM business set used for this layer's commercial conclusion. */
   deterministicBusinesses: string[];
   /** Businesses the visual witness says are actually surfaced/recommended for this layer. */

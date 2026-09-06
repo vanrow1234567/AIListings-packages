@@ -27,7 +27,7 @@ import type { IdentityProvider } from '../identity/provider.ts';
 import { NullIdentityProvider, applyStoredResolutions, resolveLayerIdentity } from '../identity/resolver.ts';
 import type { SemanticQaProvider } from '../quality/semanticQa.ts';
 import { collectWebsiteEvidence, type WebsiteEvidence } from '../quality/websiteEvidence.ts';
-import { reconcileLayerVisualEvidence } from '../quality/reconcile.ts';
+import { reconcileLayerVisualEvidence, visualConfirmsBusinessName } from '../quality/reconcile.ts';
 import type { EvaluationStore } from '../quality/evaluationStore.ts';
 
 export interface EngineDeps {
@@ -222,7 +222,32 @@ export class AuditEngine {
 
     await this.step(record, 'Identifying competitors');
     const all: EntityMention[] = LAYERS.flatMap((l) => record.layers[l].entities);
-    record.topCompetitors = rankCompetitors(all, understanding.prospect.location);
+
+    // In production visual-QA mode, a named competitor must be independently
+    // confirmed by the visual witness in the SAME turn. For Recommended and
+    // Conversational layers it must be visually recommended/shortlisted, not merely
+    // present in a map/source. This deliberately trades completeness for accuracy.
+    const competitorEvidence = visualRequired
+      ? all.filter((mention) => {
+          if (mention.kind !== 'competitor' || mention.layer === 'BRAND_DIAGNOSTIC') return false;
+          const layerResult = record.layers[mention.layer];
+          const turn = layerResult.turns.find((t) => t.index === mention.turnIndex);
+          const visual = turn?.visualReview;
+          if (!visual || visual.confidence < 0.9) return false;
+          const visualNames =
+            mention.layer === 'VISIBLE'
+              ? visual.businessesSurfaced
+              : visual.businessesRecommended;
+          return visualConfirmsBusinessName(
+            mention.name,
+            visualNames,
+            understanding.prospect.location,
+            understanding.prospect.serviceTerms ?? [],
+          );
+        })
+      : all;
+
+    record.topCompetitors = rankCompetitors(competitorEvidence, understanding.prospect.location);
     await this.done(record, 'Identifying competitors');
 
     await this.step(record, 'Preparing message');
@@ -230,6 +255,14 @@ export class AuditEngine {
     record.status = decision.status;
     if (decision.reason) record.incompleteReason = decision.reason;
     else delete record.incompleteReason;
+
+    const firstProspectTurn: Partial<Record<Layer, number>> = {};
+    for (const layer of LAYERS) {
+      const turns = record.layers[layer].entities
+        .filter((e) => e.kind === 'prospect' && e.evidence)
+        .map((e) => e.turnIndex);
+      if (turns.length > 0) firstProspectTurn[layer] = Math.min(...turns);
+    }
 
     const candidateMessage = generateOutreach({
       prospect: understanding.prospect,
@@ -241,6 +274,7 @@ export class AuditEngine {
         CONVERSATIONAL: record.layers.CONVERSATIONAL.state,
       },
       competitors: record.topCompetitors,
+      firstProspectTurn,
     });
 
     if (record.status === 'COMPLETE' && qualityRequired) {

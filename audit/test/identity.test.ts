@@ -360,7 +360,10 @@ test('invariant A. ambiguous candidate + CONFIRMED_PROSPECT => YES / COMPLETE', 
   assert.equal(record.layers.CONVERSATIONAL.prospectPresent, 'YES');
   assert.equal(record.status, 'COMPLETE');
   assert.ok(record.publicReport, 'a complete audit gets its report');
-  assert.match(record.outreachMessage ?? '', /recommended you when we described a real customer problem/);
+  assert.match(
+    record.outreachMessage ?? '',
+    /recommended you after we described the problem and then asked who we should speak to/,
+  );
 });
 
 test('invariant B. ambiguous candidate + CONFIRMED_OTHER_BUSINESS => NO / COMPLETE', async () => {

@@ -234,6 +234,16 @@ export function isProspect(candidate: Candidate, prospect: Prospect): boolean {
 export function classifyCandidate(c: Candidate, prospect: Prospect): EntityKind {
   if (matchProspect(c, prospect)) return 'prospect';
   if (isInfrastructure(c.raw, c.domain)) return 'unrelated';
+
+  // Action/checklist headings are instructions, not providers. Keep this source-aware
+  // so a genuine map result or linked business named "Audit ..." is not discarded.
+  if (
+    c.source !== 'map' &&
+    c.source !== 'link' &&
+    /^(audit|review|check|fix|improve|update|optimise|optimize)\b/i.test(c.raw)
+  ) {
+    return 'unrelated';
+  }
   if (looksLikePlaceOrAddress(c.raw, prospect.location)) return 'unrelated';
   const known = knownKind(c.raw, c.domain);
   if (known) return known;

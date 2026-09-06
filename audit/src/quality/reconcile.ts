@@ -3,6 +3,7 @@ import type {
   LayerEvidenceReconciliation,
   LayerResult,
   SemanticVisualReview,
+  TurnProspectReconciliation,
   VisualProspectState,
 } from '../domain/types.ts';
 
@@ -11,6 +12,27 @@ function deterministicState(layer: LayerResult): 'YES' | 'NO' | 'UNRESOLVED' {
   if (layer.state === 'YES') return 'YES';
   if (layer.state === 'NO') return 'NO';
   return 'UNRESOLVED';
+}
+
+function deterministicTurnState(
+  layer: LayerResult,
+  turnIndex: number,
+): 'YES' | 'NO' | 'UNRESOLVED' {
+  // With exactly one captured turn, the final parser layer verdict is necessarily
+  // the verdict for that turn. This also preserves older stored/test records that
+  // did not retain prospect EntityMention evidence separately.
+  if (layer.turns.length === 1 && layer.turns[0]?.index === turnIndex) {
+    return deterministicState(layer);
+  }
+
+  const mentions = layer.entities.filter((e) => e.turnIndex === turnIndex);
+  if (mentions.some((e) => e.kind === 'prospect' && e.evidence)) return 'YES';
+
+  const resolutions = (layer.identityResolutions ?? []).filter((r) => r.turnIndex === turnIndex);
+  if (resolutions.some((r) => r.resolutionState === 'CONFIRMED_PROSPECT')) return 'YES';
+  if (resolutions.some((r) => r.resolutionState === 'UNRESOLVED')) return 'UNRESOLVED';
+
+  return 'NO';
 }
 
 function sameEvidenceBusiness(
@@ -29,9 +51,9 @@ function sameEvidenceBusiness(
   const [small, large, smallName] = ta.size <= tb.size ? [ta, tb, a] : [tb, ta, b];
   if (![...small].every((t) => large.has(t))) return false;
 
-  // In reconciliation, semantic service terms are descriptive rather than identity.
-  // This prevents generic names such as "SEO Warrington" being merged with
-  // "AI Listings | AI SEO Agency" merely because both contain "SEO".
+  // Semantic service terms are descriptive rather than identity. This prevents
+  // generic names such as "SEO Warrington" being merged with a different brand
+  // merely because both names contain the audited service.
   return distinctiveTokens(smallName, location, serviceTerms).length > 0;
 }
 
@@ -58,18 +80,32 @@ function hasBusiness(
   return list.some((candidate) => sameEvidenceBusiness(name, candidate, location, serviceTerms));
 }
 
+/** Shared by the production competitor filter: both parser and vision must name it. */
+export function visualConfirmsBusinessName(
+  name: string,
+  visualNames: string[],
+  location: string,
+  serviceTerms: readonly string[] = [],
+): boolean {
+  return hasBusiness(name, visualNames, location, serviceTerms);
+}
+
 /**
  * Independent witness reconciliation.
  *
  * Hard release disputes:
  * - missing visual witness or confidence below 0.90;
- * - target-prospect YES/NO disagreement;
+ * - target-prospect disagreement on ANY individual turn;
+ * - aggregate target-prospect disagreement;
  * - parser says "competitor/provider" while vision explicitly classifies the same
  *   named entity only as a source/citation.
  *
+ * A Conversational sequence can validly be NO on the problem prompt and YES only
+ * after a natural follow-up. That is agreement when parser and vision independently
+ * report the same NO -> YES sequence.
+ *
  * Coverage gaps (one witness names an additional business) are retained for the
- * final Sol multimodal gate rather than treated as contradictions. A screenshot
- * witness is not assumed to be an exhaustive OCR/parser replacement.
+ * final Sol multimodal gate rather than treated as contradictions.
  */
 export function reconcileLayerVisualEvidence(
   layer: LayerResult,
@@ -84,6 +120,7 @@ export function reconcileLayerVisualEvidence(
       layer: layer.layer,
       deterministicProspectPresent,
       visualProspectPresent: 'UNRESOLVED',
+      turnProspectComparisons: [],
       deterministicBusinesses,
       visualBusinesses: [],
       visualSources: [],
@@ -107,6 +144,13 @@ export function reconcileLayerVisualEvidence(
       layer: layer.layer,
       deterministicProspectPresent,
       visualProspectPresent: 'UNRESOLVED',
+      turnProspectComparisons: layer.turns.map((t) => ({
+        turnIndex: t.index,
+        deterministicProspectPresent: deterministicTurnState(layer, t.index),
+        visualProspectPresent: t.visualReview?.prospectPresent ?? 'UNRESOLVED',
+        confidence: t.visualReview?.confidence ?? 0,
+        agreed: false,
+      })),
       deterministicBusinesses,
       visualBusinesses: [],
       visualSources: [],
@@ -124,6 +168,23 @@ export function reconcileLayerVisualEvidence(
   const reviews = layer.turns.map((t) => t.visualReview!);
   const confidence = Math.min(...reviews.map((r) => r.confidence));
   const allHighConfidence = reviews.every((r) => r.confidence >= 0.9);
+
+  const turnProspectComparisons: TurnProspectReconciliation[] = layer.turns.map((turn) => {
+    const visual = turn.visualReview!;
+    const deterministic = deterministicTurnState(layer, turn.index);
+    const agreed =
+      visual.confidence >= 0.9 &&
+      deterministic !== 'UNRESOLVED' &&
+      visual.prospectPresent !== 'UNRESOLVED' &&
+      deterministic === visual.prospectPresent;
+    return {
+      turnIndex: turn.index,
+      deterministicProspectPresent: deterministic,
+      visualProspectPresent: visual.prospectPresent,
+      confidence: visual.confidence,
+      agreed,
+    };
+  });
 
   const yes = reviews.filter((r) => r.prospectPresent === 'YES');
   let visualProspectPresent: VisualProspectState;
@@ -165,18 +226,28 @@ export function reconcileLayerVisualEvidence(
       !hasBusiness(name, visualBusinesses, location, serviceTerms),
   );
 
+  const everyTurnProspectAgreed = turnProspectComparisons.every((t) => t.agreed);
   const prospectAgreed =
     allHighConfidence &&
+    everyTurnProspectAgreed &&
     visualProspectPresent !== 'UNRESOLVED' &&
     deterministicProspectPresent === visualProspectPresent;
 
   const businessesAgreed = allHighConfidence && sourceConflicts.length === 0;
   const agreed = prospectAgreed && businessesAgreed;
 
+  const turnSequence = turnProspectComparisons
+    .map(
+      (t) =>
+        `turn ${t.turnIndex + 1} parser=${t.deterministicProspectPresent}/vision=${t.visualProspectPresent}/${t.agreed ? 'agree' : 'DISPUTE'}`,
+    )
+    .join(', ');
+
   const parts = [
     `DOM/parser prospect=${deterministicProspectPresent}`,
     `vision prospect=${visualProspectPresent}`,
     `vision confidence floor=${confidence.toFixed(2)}`,
+    `turn sequence: ${turnSequence}`,
   ];
   if (parserOnlyBusinesses.length > 0) {
     parts.push(`parser-only coverage: ${parserOnlyBusinesses.join(', ')}`);
@@ -192,6 +263,7 @@ export function reconcileLayerVisualEvidence(
     layer: layer.layer,
     deterministicProspectPresent,
     visualProspectPresent,
+    turnProspectComparisons,
     deterministicBusinesses,
     visualBusinesses,
     visualSources,

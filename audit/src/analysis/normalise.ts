@@ -33,12 +33,13 @@ export function nameKey(name: string, location: string): string {
 /** Tokens that identify a business rather than describe what it does. */
 export function distinctiveTokens(name: string, location: string, extraServiceTerms: readonly string[] = []): string[] {
   const loc = locationTokens(location);
-  const extra = new Set(extraServiceTerms.map((t) => t.toLowerCase()));
+  const extra = new Set(extraServiceTerms.flatMap((term) => tokens(term)));
   return tokens(name).filter((t) => !GENERIC.has(t) && !loc.has(t) && !SERVICE_WORDS.has(t) && !extra.has(t) && t !== '&');
 }
 
 export function isServiceWord(t: string, extraServiceTerms: readonly string[] = []): boolean {
-  return SERVICE_WORDS.has(t) || extraServiceTerms.includes(t);
+  const token = t.toLowerCase();
+  return SERVICE_WORDS.has(token) || extraServiceTerms.some((term) => tokens(term).includes(token));
 }
 
 /**

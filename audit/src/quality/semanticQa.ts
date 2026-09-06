@@ -383,7 +383,9 @@ export class OpenAiSemanticQaProvider implements SemanticQaProvider {
       'Where ChatGPT screenshots are supplied, inspect them directly and cross-check them against the DOM/parser result and independent visual witness.',
       'Treat webpage citation pills/publications as sources, not recommended businesses, unless the screenshot clearly presents them as providers.',
       'Parser-only and vision-only business names are coverage gaps, not automatic contradictions. Resolve whether any gap makes the named top competitors, layer claim, or candidate outreach materially inaccurate; reject if it does or if you cannot verify the material claim.',
-      'Never override a target-prospect YES/NO disagreement or an explicit provider-vs-source contradiction.',
+      'Use reconciliation.turnProspectComparisons to check target presence turn by turn. A Conversational NO on the opening problem prompt followed by YES after a natural follow-up is a valid NO-to-YES journey when parser and vision agree on BOTH turns; do not mislabel that sequence as a parser/vision disagreement.',
+      'The outreach must describe the turn that actually produced the prospect. If the prospect first appeared only after a follow-up asking who to speak to, reject wording that implies the opening problem prompt itself named or recommended the prospect.',
+      'Never override a real target-prospect turn disagreement or an explicit provider-vs-source contradiction.',
       'This is a credibility gate: uncertainty must fail closed.',
       'approved=true only when you are at least 90% confident the report is safe and relevant to send to this prospect.',
     ].join(' ');

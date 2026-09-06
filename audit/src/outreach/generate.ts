@@ -6,6 +6,8 @@ export interface OutreachInput {
   status: AuditStatus;
   states: Record<Layer, LayerState>;
   competitors: Competitor[];
+  /** First zero-based turn in each layer where parser evidence proved the prospect appeared. */
+  firstProspectTurn?: Partial<Record<Layer, number>>;
 }
 
 function list(names: string[]): string {
@@ -25,8 +27,6 @@ export function generateOutreach(input: OutreachInput): string | undefined {
   const { prospect, service, states } = input;
 
   // Competitor names are evidence-bound to the layer being described.
-  // Never say "when we asked who it would recommend, ChatGPT suggested X"
-  // unless X actually appeared in the RECOMMENDED layer.
   const namesFor = (layer: Layer): string[] =>
     input.competitors.filter((c) => c.layers.includes(layer)).map((c) => c.name);
 
@@ -43,21 +43,31 @@ export function generateOutreach(input: OutreachInput): string | undefined {
   const conv = states.CONVERSATIONAL === 'YES';
   const vis = states.VISIBLE === 'YES';
 
+  const conversationalFirstTurn = input.firstProspectTurn?.CONVERSATIONAL;
+  const conversationalPass =
+    conversationalFirstTurn !== undefined && conversationalFirstTurn > 0
+      ? 'after we described the problem and then asked who we should speak to'
+      : `when we described a real ${service} problem`;
+
   if (rec && conv) {
     const namedText = list(combinedRecommendedOrConversational.slice(0, 3));
     const tail = namedText
-      ? ` In those same searches ChatGPT also put ${namedText} forward alongside you, so it's worth protecting that position.`
+      ? ` Across those searches ChatGPT also put ${namedText} forward alongside you, so it's worth protecting that position.`
       : ' That\'s a strong position and worth protecting.';
-    return `${intro} Good news: in the searches we ran, ChatGPT put you forward both when we asked who it would recommend and when we described a real ${service} problem.${tail} Would you like me to send you the screenshots?`;
+    return `${intro} Good news: in the searches we ran, ChatGPT put you forward both when we asked who it would recommend and ${conversationalPass}.${tail} Would you like me to send you the screenshots?`;
   }
+
   if (rec || conv) {
-    const passed = rec ? 'asked directly who it would recommend' : 'described a real customer problem and asked who to speak to';
+    const passedClause = rec
+      ? 'when we asked directly who it would recommend'
+      : conversationalPass;
     const missed = rec ? 'we described a real problem in conversation' : 'we asked directly who it would recommend';
     const missedLayerNames = rec ? conversationalNames : recommendedNames;
     const namedText = list(missedLayerNames.slice(0, 3));
     const tail = namedText ? ` and put ${namedText} forward instead` : '';
-    return `${intro} In our test ChatGPT recommended you when we ${passed}, which is good. But when ${missed} it didn't mention you${tail}. ${close}`;
+    return `${intro} In our test ChatGPT recommended you ${passedClause}, which is good. But when ${missed} it didn't mention you${tail}. ${close}`;
   }
+
   if (vis) {
     const namedText = list(recommendedNames.slice(0, 3));
     const tail = namedText
@@ -65,6 +75,7 @@ export function generateOutreach(input: OutreachInput): string | undefined {
       : " it didn't put you forward.";
     return `${intro} In the searches we ran you're visible, which is good. The issue is that when we asked ChatGPT who it would actually recommend,${tail} ${close}`;
   }
+
   const namedText = list(recommendedNames.slice(0, 3));
   const tail = namedText
     ? ` When we asked who it would recommend, ChatGPT suggested ${namedText} instead.`
