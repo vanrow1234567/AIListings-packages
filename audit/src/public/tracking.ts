@@ -1,4 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { LAYERS } from '../domain/types.ts';
 import type { AuditRecord, PublicReport } from '../domain/types.ts';
 
 /** 256 bits of randomness, URL-safe, no business or storage information. */
@@ -22,13 +23,26 @@ const MAX_ENGAGED_SESSIONS = 2000;
  * history but is no longer served (see isPubliclyAvailable).
  */
 function semanticReleaseApproved(record: AuditRecord): boolean {
-  if (record.quality?.required !== true) return true;
-  return (
-    record.quality.preflight?.approved === true &&
-    (record.quality.preflight.confidence ?? 0) >= 0.9 &&
-    record.quality.final?.approved === true &&
-    (record.quality.final.confidence ?? 0) >= 0.9
-  );
+  const quality = record.quality;
+  if (!quality) return true;
+
+  const semanticApproved =
+    quality.required !== true ||
+    (
+      quality.preflight?.approved === true &&
+      (quality.preflight.confidence ?? 0) >= 0.9 &&
+      quality.final?.approved === true &&
+      (quality.final.confidence ?? 0) >= 0.9
+    );
+
+  const visualApproved =
+    quality.visualRequired !== true ||
+    LAYERS.every((layer) => {
+      const reconciliation = quality.visual?.[layer];
+      return reconciliation?.agreed === true && (reconciliation.confidence ?? 0) >= 0.9;
+    });
+
+  return semanticApproved && visualApproved;
 }
 
 export function ensurePublicReport(record: AuditRecord, now: () => Date = () => new Date()): PublicReport | undefined {

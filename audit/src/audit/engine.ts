@@ -27,6 +27,8 @@ import type { IdentityProvider } from '../identity/provider.ts';
 import { NullIdentityProvider, applyStoredResolutions, resolveLayerIdentity } from '../identity/resolver.ts';
 import type { SemanticQaProvider } from '../quality/semanticQa.ts';
 import { collectWebsiteEvidence, type WebsiteEvidence } from '../quality/websiteEvidence.ts';
+import { reconcileLayerVisualEvidence } from '../quality/reconcile.ts';
+import type { EvaluationStore } from '../quality/evaluationStore.ts';
 
 export interface EngineDeps {
   provider: ChatGptProvider;
@@ -38,6 +40,10 @@ export interface EngineDeps {
   /** Required in production: semantic business classification and final release review. */
   semanticQa?: SemanticQaProvider;
   semanticQaRequired?: boolean;
+  /** Independent screenshot witness. When required, missing/low-confidence/disagreeing evidence fails closed. */
+  visualQaRequired?: boolean;
+  /** Stores real disagreement/rejection cases for regression/evaluation work. */
+  evaluation?: EvaluationStore;
   websiteEvidenceCollector?: (url: string) => Promise<WebsiteEvidence>;
   now?: () => Date;
   log?: (msg: string) => void;
@@ -133,7 +139,10 @@ export class AuditEngine {
   async run(record: AuditRecord): Promise<AuditRecord> {
     record.status = 'RUNNING';
     const qualityRequired = this.deps.semanticQaRequired === true;
-    if (qualityRequired) record.quality = { required: true };
+    const visualRequired = this.deps.visualQaRequired === true;
+    if (qualityRequired || visualRequired) {
+      record.quality = { required: qualityRequired, visualRequired };
+    }
 
     await this.step(record, 'Understanding business');
     const deterministic = await understandBusiness(
@@ -161,7 +170,7 @@ export class AuditEngine {
           deterministic,
           website: websiteEvidence,
         });
-        record.quality = { required: true, preflight: review };
+        record.quality = { required: true, visualRequired, preflight: review };
         if (!review.approved || review.confidence < 0.9) {
           record.understanding = deterministic;
           await this.done(record, 'Understanding business');
@@ -242,20 +251,38 @@ export class AuditEngine {
         );
       }
       try {
+        const layerScreenshots = visualRequired
+          ? await this.layerScreenshotInputs(record)
+          : [];
+
         const finalReview = await this.deps.semanticQa.finalReview({
           request: record.request,
           understanding,
           website: websiteEvidence,
           layers: record.layers,
+          ...(record.quality?.visual
+            ? { reconciliations: record.quality.visual }
+            : {}),
+          layerScreenshots,
           competitors: record.topCompetitors,
           candidateOutreach: candidateMessage ?? '',
         });
         record.quality = {
+          ...(record.quality ?? { required: true }),
           required: true,
-          ...(record.quality?.preflight ? { preflight: record.quality.preflight } : {}),
+          visualRequired,
           final: finalReview,
         };
         if (!finalReview.approved || finalReview.confidence < 0.9) {
+          if (this.deps.evaluation) {
+            await this.deps.evaluation.saveFinalRejection(
+              record,
+              finalReview,
+              candidateMessage ?? '',
+            ).catch((err) => {
+              this.deps.log?.(`[${record.id}] failed to save final rejection evaluation: ${(err as Error).message}`);
+            });
+          }
           return this.failQuality(
             record,
             `Final semantic release review rejected the audit (${finalReview.model}, confidence ${finalReview.confidence.toFixed(2)}): ${finalReview.reason}`,
@@ -306,6 +333,7 @@ export class AuditEngine {
       // Uses captured hrefs with isolated requests; the ChatGPT conversation is never touched.
       await resolveLayerIdentity(result, u.prospect, this.deps.identity ?? new NullIdentityProvider(), '');
       finaliseLayer(result);
+      await this.reconcileVisualEvidence(record, result, u);
     } catch (err) {
       if (err instanceof SignInRequiredError) {
         result.state = 'SIGN_IN_REQUIRED';
@@ -321,6 +349,57 @@ export class AuditEngine {
       result.finishedAt = this.now();
       await conversation?.close().catch(() => undefined);
     }
+  }
+
+  private async reconcileVisualEvidence(
+    record: AuditRecord,
+    result: LayerResult,
+    understanding: BusinessUnderstanding,
+  ): Promise<void> {
+    if (this.deps.visualQaRequired !== true) return;
+
+    const reconciliation = reconcileLayerVisualEvidence(
+      result,
+      understanding.prospect.location,
+    );
+    record.quality = {
+      ...(record.quality ?? { required: this.deps.semanticQaRequired === true }),
+      visualRequired: true,
+      visual: {
+        ...(record.quality?.visual ?? {}),
+        [result.layer]: reconciliation,
+      },
+    };
+
+    if (reconciliation.agreed) return;
+
+    // Persist the original parser conclusion before the public/commercial layer is
+    // deliberately converted to a non-conclusive dispute state.
+    if (this.deps.evaluation) {
+      await this.deps.evaluation.saveLayerDispute(record, reconciliation).catch((err) => {
+        this.deps.log?.(`[${record.id}] failed to save evaluation dispute: ${(err as Error).message}`);
+      });
+    }
+
+    result.state = 'EVIDENCE_DISPUTED';
+    result.prospectPresent = 'UNRESOLVED';
+    result.error = `Independent DOM/parser and screenshot evidence did not agree. ${reconciliation.reason}`;
+  }
+
+  private async layerScreenshotInputs(record: AuditRecord): Promise<{ layer: Layer; screenshotDataUrl: string }[]> {
+    const inputs: { layer: Layer; screenshotDataUrl: string }[] = [];
+    for (const layer of LAYERS) {
+      const turns = record.layers[layer].turns;
+      const latest = [...turns].reverse().find((t) => t.screenshotPath);
+      if (!latest?.screenshotPath) {
+        throw new Error(`${layer} has no screenshot for final multimodal review.`);
+      }
+      inputs.push({
+        layer,
+        screenshotDataUrl: await this.deps.evidence.dataUrlForPublicPath(record.id, latest.screenshotPath),
+      });
+    }
+    return inputs;
   }
 
   private async runBrandDiagnostic(record: AuditRecord, u: BusinessUnderstanding): Promise<void> {
@@ -383,6 +462,32 @@ export class AuditEngine {
       this.deps.log?.(`[${record.id}] ${layer} turn ${index + 1}: ${shot.error}`);
       turn.screenshotError = shot.error;
     }
+
+    if (this.deps.visualQaRequired === true && layer !== 'BRAND_DIAGNOSTIC') {
+      if (!shot.path) {
+        turn.visualReviewError = shot.error ?? 'Screenshot capture was unavailable.';
+      } else if (!this.deps.semanticQa?.visualReview) {
+        turn.visualReviewError = 'Visual QA provider is unavailable.';
+      } else if (!record.understanding) {
+        turn.visualReviewError = 'Business understanding is unavailable for visual QA.';
+      } else {
+        try {
+          const screenshotDataUrl = await this.deps.evidence.dataUrlFromFile(shot.path);
+          turn.visualReview = await this.deps.semanticQa.visualReview({
+            request: record.request,
+            understanding: record.understanding,
+            layer,
+            turnIndex: index,
+            prompt,
+            screenshotDataUrl,
+          });
+        } catch (err) {
+          turn.visualReviewError = `Visual QA failed: ${(err as Error).message}`;
+          this.deps.log?.(`[${record.id}] ${layer} turn ${index + 1}: ${turn.visualReviewError}`);
+        }
+      }
+    }
+
     await this.deps.store.save(record);
     return turn;
   }

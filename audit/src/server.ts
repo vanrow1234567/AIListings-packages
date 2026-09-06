@@ -13,7 +13,7 @@ const publicPort = Number(process.env.PUBLIC_PORT ?? 3211);
 const ghlPort = Number(process.env.GHL_PORT ?? 3212);
 
 const provider = createProvider(log);
-const { evidence, store } = createStores();
+const { evidence, store, evaluation } = createStores();
 
 const semanticQa = createSemanticQaProvider(log);
 
@@ -24,6 +24,8 @@ const engine = new AuditEngine({
   identity: createIdentityProvider(log),
   ...(semanticQa ? { semanticQa } : {}),
   semanticQaRequired: process.env.SEMANTIC_QA_REQUIRED !== '0',
+  visualQaRequired: process.env.VISION_QA_REQUIRED !== '0',
+  evaluation,
   log,
 });
 

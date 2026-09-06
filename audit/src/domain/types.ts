@@ -14,7 +14,7 @@ export type Layer = (typeof LAYERS)[number];
  * result that could plausibly be the prospect could not be proven either way. Non-conclusive:
  * it is never reported as NO and makes the audit INCOMPLETE.
  */
-export type LayerState = 'YES' | 'NO' | 'NOT_TESTED' | 'ERROR' | 'SIGN_IN_REQUIRED' | 'IDENTITY_UNRESOLVED';
+export type LayerState = 'YES' | 'NO' | 'NOT_TESTED' | 'ERROR' | 'SIGN_IN_REQUIRED' | 'IDENTITY_UNRESOLVED' | 'EVIDENCE_DISPUTED';
 
 export type AuditStatus =
   | 'QUEUED'
@@ -135,6 +135,10 @@ export interface ConversationTurn {
   response: ChatGptResponse;
   screenshotPath?: string;
   screenshotError?: string;
+  /** Independent multimodal reading of what a human sees in the ChatGPT screenshot. */
+  visualReview?: SemanticVisualReview;
+  /** A missing / failed visual witness is non-conclusive when visual QA is required. */
+  visualReviewError?: string;
   conversationUrl?: string;
   askedAt: string;
   answeredAt: string;
@@ -316,9 +320,53 @@ export interface SemanticFinalReview {
   model: string;
 }
 
+export type VisualProspectState = 'YES' | 'NO' | 'UNRESOLVED';
+
+/**
+ * Independent visual witness for one captured ChatGPT turn.
+ * It never receives the parser's conclusion, so agreement is meaningful.
+ */
+export interface SemanticVisualReview {
+  prospectPresent: VisualProspectState;
+  confidence: number;
+  businessesSurfaced: string[];
+  businessesRecommended: string[];
+  citationsOrSources: string[];
+  evidence: string[];
+  reason: string;
+  concerns: string[];
+  model: string;
+}
+
+export interface LayerEvidenceReconciliation {
+  layer: Layer;
+  deterministicProspectPresent: 'YES' | 'NO' | 'UNRESOLVED';
+  visualProspectPresent: VisualProspectState;
+  /** Parser/DOM business set used for this layer's commercial conclusion. */
+  deterministicBusinesses: string[];
+  /** Businesses the visual witness says are actually surfaced/recommended for this layer. */
+  visualBusinesses: string[];
+  /** Publications/citations/sources the visual witness says are not provider recommendations. */
+  visualSources: string[];
+  /** Parser businesses absent from the visual provider set. */
+  parserOnlyBusinesses: string[];
+  /** Visual provider businesses absent from the parser set. */
+  visionOnlyBusinesses: string[];
+  /** Parser competitors that vision explicitly classified as citation/source material. */
+  sourceConflicts: string[];
+  prospectAgreed: boolean;
+  businessesAgreed: boolean;
+  agreed: boolean;
+  confidence: number;
+  reason: string;
+}
+
 export interface AuditQuality {
   required: boolean;
+  /** Production belt-and-braces mode: DOM/parser and screenshot vision must agree. */
+  visualRequired?: boolean;
   preflight?: SemanticBusinessReview;
+  visual?: Partial<Record<Layer, LayerEvidenceReconciliation>>;
   final?: SemanticFinalReview;
 }
 

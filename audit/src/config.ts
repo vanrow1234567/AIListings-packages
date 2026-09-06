@@ -12,6 +12,7 @@ import { DataForSeoMapsProvider } from './identity/dataforseo.ts';
 import { prospectFactsSource } from './identity/prospectFacts.ts';
 import { resolveAuditIntake } from './intake/resolve.ts';
 import { OpenAiSemanticQaProvider } from './quality/semanticQa.ts';
+import { EvaluationStore } from './quality/evaluationStore.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** Project root (audit/) regardless of running from src/ or dist/. */
@@ -77,14 +78,15 @@ export function createSemanticQaProvider(
       : {}),
     log,
   });
-  log('[semantic-qa] mandatory preflight + final release gates enabled');
+  log('[semantic-qa] preflight + independent screenshot witness + final multimodal release gates available');
   return provider;
 }
 
-export function createStores(): { evidence: EvidenceStore; store: AuditStore } {
+export function createStores(): { evidence: EvidenceStore; store: AuditStore; evaluation: EvaluationStore } {
   return {
     evidence: new EvidenceStore(path.join(DATA_DIR, 'evidence')),
     store: new AuditStore(path.join(DATA_DIR, 'audits')),
+    evaluation: new EvaluationStore(path.join(DATA_DIR, 'evaluations')),
   };
 }
 /**
