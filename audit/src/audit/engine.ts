@@ -9,6 +9,7 @@ import type {
   Layer,
   LayerResult,
   ProgressStep,
+  SemanticBusinessReview,
 } from '../domain/types.ts';
 import { LAYERS } from '../domain/types.ts';
 import { SignInRequiredError } from '../domain/errors.ts';
@@ -24,6 +25,8 @@ import type { AuditStore } from '../persistence/store.ts';
 import { ensurePublicReport, isPubliclyAvailable, publicUrl } from '../public/tracking.ts';
 import type { IdentityProvider } from '../identity/provider.ts';
 import { NullIdentityProvider, applyStoredResolutions, resolveLayerIdentity } from '../identity/resolver.ts';
+import type { SemanticQaProvider } from '../quality/semanticQa.ts';
+import { collectWebsiteEvidence, type WebsiteEvidence } from '../quality/websiteEvidence.ts';
 
 export interface EngineDeps {
   provider: ChatGptProvider;
@@ -32,6 +35,10 @@ export interface EngineDeps {
   /** Proves whether an ambiguous surfaced result belongs to the prospect. Defaults to no resolution (UNRESOLVED). */
   identity?: IdentityProvider;
   fetcher?: WebsiteFetcher;
+  /** Required in production: semantic business classification and final release review. */
+  semanticQa?: SemanticQaProvider;
+  semanticQaRequired?: boolean;
+  websiteEvidenceCollector?: (url: string) => Promise<WebsiteEvidence>;
   now?: () => Date;
   log?: (msg: string) => void;
 }
@@ -85,10 +92,95 @@ export class AuditEngine {
     await this.deps.store.save(record);
   }
 
+  private async failQuality(record: AuditRecord, reason: string): Promise<AuditRecord> {
+    record.status = 'INCOMPLETE';
+    record.incompleteReason = reason;
+    delete record.outreachMessage;
+    for (const layer of LAYERS) {
+      if (record.layers[layer].state === 'NOT_TESTED') {
+        record.layers[layer].error = `Skipped: ${reason}`;
+      }
+    }
+    delete record.currentStep;
+    record.updatedAt = this.now();
+    await this.deps.store.save(record);
+    return record;
+  }
+
+  private semanticUnderstanding(
+    deterministic: BusinessUnderstanding,
+    review: SemanticBusinessReview,
+  ): BusinessUnderstanding {
+    deterministic.prospect.serviceTerms = [
+      ...new Set(review.serviceTerms.map((term) => term.trim().toLowerCase()).filter(Boolean)),
+    ];
+    return {
+      ...deterministic,
+      service: review.primaryService,
+      providerNoun: review.providerNoun,
+      customerRequirement: review.customerRequirement,
+      customerProblem: review.customerProblem,
+      source: 'semantic',
+      semanticConfidence: review.confidence,
+      notes: [
+        ...deterministic.notes,
+        `Semantic business type: ${review.businessType}`,
+        ...review.evidence.map((e) => `Semantic evidence: ${e}`),
+      ],
+    };
+  }
+
   async run(record: AuditRecord): Promise<AuditRecord> {
     record.status = 'RUNNING';
+    const qualityRequired = this.deps.semanticQaRequired === true;
+    if (qualityRequired) record.quality = { required: true };
+
     await this.step(record, 'Understanding business');
-    const understanding = await understandBusiness(record.request, this.deps.fetcher ? { fetcher: this.deps.fetcher } : {});
+    const deterministic = await understandBusiness(
+      record.request,
+      this.deps.fetcher ? { fetcher: this.deps.fetcher } : {},
+    );
+
+    let websiteEvidence: WebsiteEvidence | undefined;
+    let understanding = deterministic;
+
+    if (qualityRequired) {
+      if (!this.deps.semanticQa) {
+        record.understanding = deterministic;
+        await this.done(record, 'Understanding business');
+        return this.failQuality(
+          record,
+          'Semantic business verification is unavailable. Audit was not run and no prospect report was released.',
+        );
+      }
+      try {
+        const collector = this.deps.websiteEvidenceCollector ?? collectWebsiteEvidence;
+        websiteEvidence = await collector(record.request.website);
+        const review = await this.deps.semanticQa.preflight({
+          request: record.request,
+          deterministic,
+          website: websiteEvidence,
+        });
+        record.quality = { required: true, preflight: review };
+        if (!review.approved || review.confidence < 0.9) {
+          record.understanding = deterministic;
+          await this.done(record, 'Understanding business');
+          return this.failQuality(
+            record,
+            `Semantic business verification rejected the audit (${review.model}, confidence ${review.confidence.toFixed(2)}). ${review.concerns.join(' ')}`.trim(),
+          );
+        }
+        understanding = this.semanticUnderstanding(deterministic, review);
+      } catch (err) {
+        record.understanding = deterministic;
+        await this.done(record, 'Understanding business');
+        return this.failQuality(
+          record,
+          `Semantic business verification failed: ${(err as Error).message}. Audit was not run and no prospect report was released.`,
+        );
+      }
+    }
+
     record.understanding = understanding;
     await this.done(record, 'Understanding business');
 
@@ -129,7 +221,8 @@ export class AuditEngine {
     record.status = decision.status;
     if (decision.reason) record.incompleteReason = decision.reason;
     else delete record.incompleteReason;
-    const message = generateOutreach({
+
+    const candidateMessage = generateOutreach({
       prospect: understanding.prospect,
       service: understanding.service,
       status: record.status,
@@ -140,8 +233,44 @@ export class AuditEngine {
       },
       competitors: record.topCompetitors,
     });
-    if (message) record.outreachMessage = message;
-    ensurePublicReport(record, this.deps.now); // only when COMPLETE
+
+    if (record.status === 'COMPLETE' && qualityRequired) {
+      if (!this.deps.semanticQa || !websiteEvidence) {
+        return this.failQuality(
+          record,
+          'Final semantic release review was unavailable. No prospect report was released.',
+        );
+      }
+      try {
+        const finalReview = await this.deps.semanticQa.finalReview({
+          request: record.request,
+          understanding,
+          website: websiteEvidence,
+          layers: record.layers,
+          competitors: record.topCompetitors,
+          candidateOutreach: candidateMessage ?? '',
+        });
+        record.quality = {
+          required: true,
+          ...(record.quality?.preflight ? { preflight: record.quality.preflight } : {}),
+          final: finalReview,
+        };
+        if (!finalReview.approved || finalReview.confidence < 0.9) {
+          return this.failQuality(
+            record,
+            `Final semantic release review rejected the audit (${finalReview.model}, confidence ${finalReview.confidence.toFixed(2)}): ${finalReview.reason}`,
+          );
+        }
+      } catch (err) {
+        return this.failQuality(
+          record,
+          `Final semantic release review failed: ${(err as Error).message}. No prospect report was released.`,
+        );
+      }
+    }
+
+    if (candidateMessage) record.outreachMessage = candidateMessage;
+    ensurePublicReport(record, this.deps.now); // COMPLETE + semantic release approval when required
     await this.done(record, 'Preparing message');
     delete record.currentStep;
     record.updatedAt = this.now();
@@ -314,9 +443,19 @@ export function reanalyseRecord(record: AuditRecord): AuditRecord {
     states: { VISIBLE: record.layers.VISIBLE.state, RECOMMENDED: record.layers.RECOMMENDED.state, CONVERSATIONAL: record.layers.CONVERSATIONAL.state },
     competitors: record.topCompetitors,
   });
-  if (message) record.outreachMessage = message;
-  else delete record.outreachMessage;
-  ensurePublicReport(record); // only when COMPLETE; an existing token is kept
+
+  if (record.quality?.required === true) {
+    // Reanalysis changes interpretation/outreach, so a previous release decision is stale.
+    delete record.quality.final;
+    record.status = 'INCOMPLETE';
+    record.incompleteReason =
+      'Audit was reanalysed. A fresh semantic final review is required before any prospect report can be released.';
+    delete record.outreachMessage;
+  } else {
+    if (message) record.outreachMessage = message;
+    else delete record.outreachMessage;
+    ensurePublicReport(record);
+  }
   record.updatedAt = new Date().toISOString();
   return record;
 }

@@ -14,6 +14,8 @@ export function validateRequest(body: unknown): { ok: true; value: AuditRequest 
   const value: AuditRequest = { business_name, website, location };
   const lead_id = str('lead_id');
   if (lead_id) value.lead_id = lead_id;
+  const industry_hint = str('industry_hint') || str('industry');
+  if (industry_hint) value.industry_hint = industry_hint;
   if (b.include_brand_diagnostic === true) value.include_brand_diagnostic = true;
   return { ok: true, value };
 }

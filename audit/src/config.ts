@@ -11,6 +11,7 @@ import { LocalBusinessIdentityProvider } from './identity/localBusiness.ts';
 import { DataForSeoMapsProvider } from './identity/dataforseo.ts';
 import { prospectFactsSource } from './identity/prospectFacts.ts';
 import { resolveAuditIntake } from './intake/resolve.ts';
+import { OpenAiSemanticQaProvider } from './quality/semanticQa.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** Project root (audit/) regardless of running from src/ or dist/. */
@@ -57,6 +58,27 @@ export function createIdentityProvider(log: (m: string) => void = () => undefine
     log(`[identity] unknown AUDIT_LOCAL_BUSINESS_PROVIDER "${vendor}"; link resolver only`);
   }
   return link;
+}
+
+export function createSemanticQaProvider(
+  log: (m: string) => void = () => undefined,
+) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    log('[semantic-qa] OPENAI_API_KEY missing; production audits will fail closed before ChatGPT testing');
+    return undefined;
+  }
+  const provider = new OpenAiSemanticQaProvider({
+    apiKey,
+    primaryModel: process.env.SEMANTIC_QA_PRIMARY_MODEL ?? 'gpt-5.6-luna',
+    reviewModel: process.env.SEMANTIC_QA_REVIEW_MODEL ?? 'gpt-5.6-sol',
+    ...(process.env.OPENAI_RESPONSES_ENDPOINT
+      ? { endpoint: process.env.OPENAI_RESPONSES_ENDPOINT }
+      : {}),
+    log,
+  });
+  log('[semantic-qa] mandatory preflight + final release gates enabled');
+  return provider;
 }
 
 export function createStores(): { evidence: EvidenceStore; store: AuditStore } {

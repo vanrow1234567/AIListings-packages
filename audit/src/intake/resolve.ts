@@ -93,6 +93,7 @@ export async function resolveAuditIntake(
   const directLocation = clean(b.location);
   const city = clean(b.city);
   const lead_id = clean(b.lead_id);
+  const industry_hint = clean(b.industry_hint) || clean(b.industry);
 
   if (!business_name) {
     return {
@@ -120,6 +121,7 @@ export async function resolveAuditIntake(
     };
 
     if (lead_id) value.lead_id = lead_id;
+    if (industry_hint) value.industry_hint = industry_hint;
 
     if (b.include_brand_diagnostic === true) {
       value.include_brand_diagnostic = true;

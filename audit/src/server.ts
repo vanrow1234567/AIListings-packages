@@ -2,7 +2,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { AuditEngine } from './audit/engine.ts';
 import { createApp } from './app.ts';
-import { PROJECT_ROOT, createGhlIntakeResolver, createIdentityProvider, createProvider, createStores } from './config.ts';
+import { PROJECT_ROOT, createGhlIntakeResolver, createIdentityProvider, createProvider, createSemanticQaProvider, createStores } from './config.ts';
 import { createGhlIngress } from './ghl/ingress.ts';
 import { createPublicBoundary } from './public/boundary.ts';
 
@@ -15,11 +15,15 @@ const ghlPort = Number(process.env.GHL_PORT ?? 3212);
 const provider = createProvider(log);
 const { evidence, store } = createStores();
 
+const semanticQa = createSemanticQaProvider(log);
+
 const engine = new AuditEngine({
   provider,
   evidence,
   store,
   identity: createIdentityProvider(log),
+  ...(semanticQa ? { semanticQa } : {}),
+  semanticQaRequired: process.env.SEMANTIC_QA_REQUIRED !== '0',
   log,
 });
 

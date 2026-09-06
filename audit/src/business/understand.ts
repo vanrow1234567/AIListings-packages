@@ -89,12 +89,38 @@ function decode(s: string): string {
 /** Score each catalogue profile against a body of text; returns the best match or undefined. */
 export function detectService(texts: { text: string; weight: number }[]): ServiceProfile | undefined {
   let best: { profile: ServiceProfile; score: number } | undefined;
+
+  const countKeywordHits = (text: string, keyword: string): number => {
+    const needle = keyword.toLowerCase();
+    if (!needle) return 0;
+
+    let hits = 0;
+    let from = 0;
+
+    while (from <= text.length - needle.length) {
+      const index = text.indexOf(needle, from);
+      if (index === -1) break;
+
+      const before = index > 0 ? text[index - 1] ?? '' : '';
+      // Require a word boundary at the START of the keyword.
+      // This still lets intentional stems work (e.g. "plumb" -> "plumber"),
+      // but prevents false positives such as "roof" inside "proof".
+      if (!before || !/[a-z0-9]/.test(before)) {
+        hits++;
+      }
+
+      from = index + Math.max(needle.length, 1);
+    }
+
+    return hits;
+  };
+
   for (const profile of SERVICE_CATALOGUE) {
     let score = 0;
     for (const { text, weight } of texts) {
       const lower = text.toLowerCase();
       for (const kw of profile.keywords) {
-        const hits = lower.split(kw.toLowerCase()).length - 1;
+        const hits = countKeywordHits(lower, kw);
         if (hits > 0) score += weight * Math.min(hits, 5);
       }
     }

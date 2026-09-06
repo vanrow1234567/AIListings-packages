@@ -21,8 +21,18 @@ const MAX_ENGAGED_SESSIONS = 2000;
  * is re-analysed to a non-complete state its report stays stored for its tracking
  * history but is no longer served (see isPubliclyAvailable).
  */
+function semanticReleaseApproved(record: AuditRecord): boolean {
+  if (record.quality?.required !== true) return true;
+  return (
+    record.quality.preflight?.approved === true &&
+    (record.quality.preflight.confidence ?? 0) >= 0.9 &&
+    record.quality.final?.approved === true &&
+    (record.quality.final.confidence ?? 0) >= 0.9
+  );
+}
+
 export function ensurePublicReport(record: AuditRecord, now: () => Date = () => new Date()): PublicReport | undefined {
-  if (record.status !== 'COMPLETE') return undefined;
+  if (record.status !== 'COMPLETE' || !semanticReleaseApproved(record)) return undefined;
   if (!record.publicReport) {
     record.publicReport = {
       token: issuePublicToken(),
@@ -38,7 +48,7 @@ export function ensurePublicReport(record: AuditRecord, now: () => Date = () => 
 }
 
 export function isPubliclyAvailable(record: AuditRecord | undefined): record is AuditRecord & { publicReport: PublicReport } {
-  return !!record && record.status === 'COMPLETE' && !!record.publicReport;
+  return !!record && record.status === 'COMPLETE' && semanticReleaseApproved(record) && !!record.publicReport;
 }
 
 /**

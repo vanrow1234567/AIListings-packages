@@ -39,6 +39,8 @@ export interface AuditRequest {
   location: string;
   /** Reserved for the future CRM (GoHighLevel) integration. */
   lead_id?: string;
+  /** Optional hint from CRM/lead form. Never treated as proof; semantic QA verifies it against the website. */
+  industry_hint?: string;
   /** Optional: also ask the brand-specific diagnostic question after the unbiased tests. */
   include_brand_diagnostic?: boolean;
 }
@@ -104,9 +106,11 @@ export interface BusinessUnderstanding {
   /** Geographic market, usually the supplied location. */
   market: string;
   /** How the service was determined. */
-  source: 'website' | 'name' | 'fallback';
+  source: 'website' | 'name' | 'fallback' | 'semantic';
   /** Free-text notes from the website fetch (title etc.) for evidence. */
   notes: string[];
+  /** Present when a semantic model verified the classification. */
+  semanticConfidence?: number;
 }
 
 export interface LayerPrompt {
@@ -290,6 +294,34 @@ export interface PublicReport {
   engagedSessions: string[];
 }
 
+export interface SemanticBusinessReview {
+  approved: boolean;
+  confidence: number;
+  businessType: string;
+  primaryService: string;
+  providerNoun: string;
+  customerRequirement: string;
+  customerProblem: string;
+  serviceTerms: string[];
+  evidence: string[];
+  concerns: string[];
+  model: string;
+}
+
+export interface SemanticFinalReview {
+  approved: boolean;
+  confidence: number;
+  reason: string;
+  concerns: string[];
+  model: string;
+}
+
+export interface AuditQuality {
+  required: boolean;
+  preflight?: SemanticBusinessReview;
+  final?: SemanticFinalReview;
+}
+
 export interface AuditRecord {
   id: string;
   createdAt: string;
@@ -307,6 +339,8 @@ export interface AuditRecord {
   /** Human readable explanation when the audit is INCOMPLETE / SIGN_IN_REQUIRED. */
   incompleteReason?: string;
   provider: string;
+  /** Mandatory semantic safety gates for production audits. */
+  quality?: AuditQuality;
   publicReport?: PublicReport;
 }
 
