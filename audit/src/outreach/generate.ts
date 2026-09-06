@@ -35,6 +35,17 @@ export function generateOutreach(input: OutreachInput): string | undefined {
   const combinedRecommendedOrConversational = input.competitors
     .filter((c) => c.layers.includes('RECOMMENDED') || c.layers.includes('CONVERSATIONAL'))
     .map((c) => c.name);
+  const allCompetitorNames = input.competitors.map((c) => c.name);
+
+  // topCompetitors are already evidence-gated by the audit engine in production.
+  // If a competitor did not appear in the exact missed layer, use broader
+  // "across the searches" wording rather than implying it was recommended there.
+  const broadCompetitorContext = (): string => {
+    const namedText = list(allCompetitorNames.slice(0, 3));
+    return namedText
+      ? ` Across the searches we ran, ChatGPT also surfaced ${namedText}.`
+      : '';
+  };
 
   const intro = `Hi there, we ran a set of ChatGPT searches to see how ${prospect.name} appears when someone in ${prospect.location} looks for ${service} help.`;
   const close = 'That\'s the area we help businesses improve. Would you like me to send you what we found?';
@@ -53,7 +64,7 @@ export function generateOutreach(input: OutreachInput): string | undefined {
     const namedText = list(combinedRecommendedOrConversational.slice(0, 3));
     const tail = namedText
       ? ` Across those searches ChatGPT also put ${namedText} forward alongside you, so it's worth protecting that position.`
-      : ' That\'s a strong position and worth protecting.';
+      : broadCompetitorContext() || ' That\'s a strong position and worth protecting.';
     return `${intro} Good news: in the searches we ran, ChatGPT put you forward both when we asked who it would recommend and ${conversationalPass}.${tail} Would you like me to send you the screenshots?`;
   }
 
@@ -64,21 +75,28 @@ export function generateOutreach(input: OutreachInput): string | undefined {
     const missed = rec ? 'we described a real problem in conversation' : 'we asked directly who it would recommend';
     const missedLayerNames = rec ? conversationalNames : recommendedNames;
     const namedText = list(missedLayerNames.slice(0, 3));
-    const tail = namedText ? ` and put ${namedText} forward instead` : '';
-    return `${intro} In our test ChatGPT recommended you ${passedClause}, which is good. But when ${missed} it didn't mention you${tail}. ${close}`;
+
+    // Exact "put X forward instead" wording is reserved for competitors verified
+    // in the exact layer where the prospect was missed. Otherwise we can still
+    // use the verified top competitors with the safer cross-search wording.
+    const competitorContext = namedText
+      ? ` and put ${namedText} forward instead.`
+      : `.${broadCompetitorContext()}`;
+
+    return `${intro} In our test ChatGPT recommended you ${passedClause}, which is good. But when ${missed} it didn't mention you${competitorContext} ${close}`;
   }
 
   if (vis) {
     const namedText = list(recommendedNames.slice(0, 3));
     const tail = namedText
       ? ` it put ${namedText} forward instead.`
-      : " it didn't put you forward.";
+      : ` it didn't put you forward.${broadCompetitorContext()}`;
     return `${intro} In the searches we ran you're visible, which is good. The issue is that when we asked ChatGPT who it would actually recommend,${tail} ${close}`;
   }
 
   const namedText = list(recommendedNames.slice(0, 3));
   const tail = namedText
     ? ` When we asked who it would recommend, ChatGPT suggested ${namedText} instead.`
-    : " When we asked who it would recommend, it didn't suggest you.";
+    : ` When we asked who it would recommend, it didn't suggest you.${broadCompetitorContext()}`;
   return `${intro} In the ChatGPT searches we ran, ${prospect.name} didn't appear at any point.${tail} ${close}`;
 }
