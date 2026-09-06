@@ -93,6 +93,8 @@ export async function resolveAuditIntake(
   const directLocation = clean(b.location);
   const city = clean(b.city);
   const lead_id = clean(b.lead_id);
+  const contact_name = clean(b.contact_name) || clean(b.first_name);
+  const phone = clean(b.phone);
   const industry_hint = clean(b.industry_hint) || clean(b.industry);
 
   if (!business_name) {
@@ -120,6 +122,8 @@ export async function resolveAuditIntake(
       location,
     };
 
+    if (contact_name) value.contact_name = contact_name;
+    if (phone) value.phone = phone;
     if (lead_id) value.lead_id = lead_id;
     if (industry_hint) value.industry_hint = industry_hint;
 
@@ -180,7 +184,7 @@ export async function resolveAuditIntake(
   }
 
   if (deps.maps) {
-    const suppliedPhone = normalisePhone(clean(b.phone));
+    const suppliedPhone = normalisePhone(phone);
 
     const query: LocalBusinessQuery = {
       candidateName: business_name,

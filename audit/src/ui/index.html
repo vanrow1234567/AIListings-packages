@@ -33,6 +33,20 @@
   details { margin-top: 8px; } summary { cursor:pointer; color: var(--muted); }
   pre { white-space: pre-wrap; font-size: 12px; background:#f8fafc; padding:10px; border-radius:6px; }
   .muted { color: var(--muted); font-size: 13px; }
+  .queue-head { display:flex; gap:12px; justify-content:space-between; align-items:center; }
+  .queue-head button { margin-top:0; }
+  .review-card { border:1px solid var(--line); border-radius:10px; padding:16px; margin-top:14px; background:#fff; }
+  .review-title { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+  .review-title strong { font-size:16px; }
+  .pill { display:inline-block; font-size:11px; font-weight:800; letter-spacing:.04em; padding:3px 7px; border-radius:999px; background:#e2e8f0; }
+  .pill.APPROVED { background:#dbeafe; color:#1d4ed8; }
+  .pill.SENT { background:#dcfce7; color:#15803d; }
+  .pill.REJECTED { background:#fee2e2; color:#b91c1c; }
+  textarea { width:100%; box-sizing:border-box; min-height:120px; padding:10px 12px; border:1px solid #cbd5e1; border-radius:8px; font:14px/1.45 system-ui, sans-serif; resize:vertical; }
+  .review-actions { display:flex; gap:8px; flex-wrap:wrap; }
+  .review-actions button { margin-top:10px; }
+  button.danger { background:#fff; color:var(--no); border:1px solid var(--no); }
+  button.ok { background:var(--ok); }
 </style>
 </head>
 <body>
@@ -57,11 +71,23 @@
   </section>
 
   <section id="result" class="card" hidden></section>
+
+  <section id="reviewQueue" class="card">
+    <div class="queue-head">
+      <div>
+        <h1 style="font-size:18px">MVP Live Review Queue</h1>
+        <p class="muted" style="margin:2px 0 0">Nothing is sent automatically. Approve the exact SMS, copy it, send it manually, then confirm sent.</p>
+      </div>
+      <button id="refreshQueue" type="button" class="secondary">REFRESH</button>
+    </div>
+    <div id="queueItems"><p class="muted">Loading…</p></div>
+  </section>
 </main>
 <script>
 const STEPS = ['Understanding business','Testing Visible','Testing Recommended','Testing Conversational','Identifying competitors','Preparing message'];
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let reviewItems = new Map();
 
 function renderSteps(record) {
   $('#steps').innerHTML = STEPS.map((s) => {
@@ -107,6 +133,124 @@ function renderResult(data) {
   if (s.status === 'SIGN_IN_REQUIRED') showConnect('ChatGPT asked for a sign-in. Click Connect ChatGPT, sign in normally in the browser window that opens, then run the audit again.');
 }
 
+function renderReviewQueue(items) {
+  reviewItems = new Map(items.map((item) => [item.id, item]));
+  if (!items.length) {
+    $('#queueItems').innerHTML = '<p class="muted">No outreach is waiting for review yet.</p>';
+    return;
+  }
+
+  $('#queueItems').innerHTML = items.map((item) => {
+    const r = item.review;
+    const editable = r.status === 'PENDING_REVIEW' || r.status === 'REJECTED';
+    const message = r.status === 'APPROVED'
+      ? r.approvedMessage
+      : r.status === 'SENT'
+        ? r.sentMessage
+        : r.generatedMessage;
+    const competitors = item.topCompetitors.length ? item.topCompetitors.join(', ') : 'none';
+    const alt = item.competitorOutreachMessage && item.competitorOutreachMessage !== r.generatedMessage
+      ? '<button type="button" class="secondary" data-action="use-competitor" data-id="' + esc(item.id) + '">USE COMPETITOR-FIRST</button>'
+      : '';
+    const report = item.publicUrl
+      ? '<a href="' + esc(item.publicUrl) + '" target="_blank">Open prospect report</a>'
+      : '<span class="muted">No public report</span>';
+
+    let actions = '';
+    if (editable) {
+      actions = '<button type="button" class="ok" data-action="approve" data-id="' + esc(item.id) + '">APPROVE SMS</button>' +
+        alt +
+        '<button type="button" class="danger" data-action="reject" data-id="' + esc(item.id) + '">REJECT</button>';
+    } else if (r.status === 'APPROVED') {
+      actions = '<button type="button" data-action="copy" data-id="' + esc(item.id) + '">COPY APPROVED SMS</button>' +
+        '<button type="button" class="ok" data-action="sent" data-id="' + esc(item.id) + '">CONFIRM SMS SENT</button>';
+    }
+
+    return '<div class="review-card" id="review-' + esc(item.id) + '">' +
+      '<div class="review-title"><div><strong>' + esc(item.businessName) + '</strong>' +
+      '<div class="muted">' + esc(item.location) + ' · ' + esc(item.VISIBLE) + ' / ' + esc(item.RECOMMENDED) + ' / ' + esc(item.CONVERSATIONAL) + '</div></div>' +
+      '<span class="pill ' + esc(r.status) + '">' + esc(r.status) + '</span></div>' +
+      '<p class="muted">Competitors: ' + esc(competitors) + ' · ' + report + '</p>' +
+      '<label for="phone-' + esc(item.id) + '">SMS recipient</label>' +
+      '<input id="phone-' + esc(item.id) + '" value="' + esc(r.recipientPhone || '') + '" placeholder="+447... or GHL contact phone" ' + (r.status === 'SENT' ? 'disabled' : '') + '>' +
+      '<label for="message-' + esc(item.id) + '">Exact message</label>' +
+      '<textarea id="message-' + esc(item.id) + '" ' + (editable ? '' : 'readonly') + '>' + esc(message || '') + '</textarea>' +
+      (r.status === 'SENT'
+        ? '<p class="muted"><b>Sent:</b> ' + esc(r.sentAt) + ' · SMS · exact payload preserved above.</p>'
+        : '') +
+      '<div class="review-actions">' + actions + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+async function loadReviewQueue() {
+  try {
+    const res = await fetch('/api/review-queue');
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Review queue failed');
+    renderReviewQueue(data.items || []);
+  } catch (err) {
+    $('#queueItems').innerHTML = '<p class="warn">' + esc(err.message || err) + '</p>';
+  }
+}
+
+async function postReview(id, action, body = {}) {
+  const res = await fetch('/api/audits/' + encodeURIComponent(id) + '/review/' + action, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Review action failed');
+  await loadReviewQueue();
+}
+
+$('#queueItems').addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-action]');
+  if (!button) return;
+  const id = button.dataset.id;
+  const action = button.dataset.action;
+  const item = reviewItems.get(id);
+  if (!item) return;
+
+  try {
+    if (action === 'use-competitor') {
+      $('#message-' + id).value = item.competitorOutreachMessage || '';
+      return;
+    }
+
+    if (action === 'approve') {
+      const message = $('#message-' + id).value;
+      const recipientPhone = $('#phone-' + id).value;
+      await postReview(id, 'approve', { message, recipient_phone: recipientPhone });
+      return;
+    }
+
+    if (action === 'reject') {
+      const reason = prompt('Optional reason for rejecting this message:', '') || '';
+      await postReview(id, 'reject', { reason });
+      return;
+    }
+
+    if (action === 'copy') {
+      await navigator.clipboard.writeText(item.review.approvedMessage || '');
+      button.textContent = 'COPIED';
+      setTimeout(() => { button.textContent = 'COPY APPROVED SMS'; }, 1200);
+      return;
+    }
+
+    if (action === 'sent') {
+      const phone = item.review.recipientPhone || '';
+      if (!confirm('Confirm you sent the exact approved SMS to ' + phone + '?')) return;
+      await postReview(id, 'confirm-sent');
+    }
+  } catch (err) {
+    alert(err.message || err);
+  }
+});
+
+$('#refreshQueue').addEventListener('click', loadReviewQueue);
+
 function showConnect(msg) {
   $('#connect').hidden = false;
   $('#connectMsg').textContent = msg || '';
@@ -119,6 +263,7 @@ async function poll(id) {
   if (['COMPLETE','INCOMPLETE','SIGN_IN_REQUIRED'].includes(data.summary.status)) {
     $('#run').disabled = false;
     renderResult(data);
+    loadReviewQueue();
     return;
   }
   setTimeout(() => poll(id), 1500);
@@ -152,6 +297,8 @@ $('#connect').addEventListener('click', async () => {
 });
 
 if (location.hash.length > 1) { $('#progress').hidden = false; poll(location.hash.slice(1)); }
+loadReviewQueue();
+setInterval(loadReviewQueue, 10000);
 </script>
 </body>
 </html>

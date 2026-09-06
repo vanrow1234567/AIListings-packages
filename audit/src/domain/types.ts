@@ -37,6 +37,9 @@ export interface AuditRequest {
   business_name: string;
   website: string;
   location: string;
+  /** Optional outreach recipient details. Never used as audit evidence. */
+  contact_name?: string;
+  phone?: string;
   /** Reserved for the future CRM (GoHighLevel) integration. */
   lead_id?: string;
   /** Optional hint from CRM/lead form. Never treated as proof; semantic QA verifies it against the website. */
@@ -331,6 +334,28 @@ export interface PublicReport {
   engagedSessions: string[];
 }
 
+export type OutreachReviewStatus = 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'SENT';
+export type OutreachReviewSource = 'PROSPECT_AUDIT' | 'COMPETITOR_FIRST';
+
+export interface OutreachReview {
+  status: OutreachReviewStatus;
+  /** The system-selected starting draft. The operator may edit before approval. */
+  generatedMessage: string;
+  generatedAt: string;
+  source: OutreachReviewSource;
+  contactName?: string;
+  recipientPhone?: string;
+  /** Exact operator-approved text. */
+  approvedMessage?: string;
+  approvedAt?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  /** Immutable manual-send record for the first MVP. */
+  sentMessage?: string;
+  sentAt?: string;
+  channel?: 'SMS';
+}
+
 export interface SemanticBusinessReview {
   approved: boolean;
   confidence: number;
@@ -433,6 +458,8 @@ export interface AuditRecord {
    * evidence. May exist when the prospect audit is INCOMPLETE/EVIDENCE_DISPUTED.
    */
   competitorOutreachMessage?: string;
+  /** Human review + exact manual-send log. Old audits may not have one. */
+  outreachReview?: OutreachReview;
   evidence: Evidence;
   /** Human readable explanation when the audit is INCOMPLETE / SIGN_IN_REQUIRED. */
   incompleteReason?: string;
@@ -454,6 +481,7 @@ export interface AuditSummary {
   outreachMessage?: string;
   /** Safe competitor-first SMS; independent of the prospect verdict. */
   competitorOutreachMessage?: string;
+  outreachReview?: OutreachReview;
   evidence: Evidence;
   incompleteReason?: string;
   /** Prospect-facing report URL. Present only for COMPLETE audits. */

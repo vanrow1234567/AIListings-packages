@@ -21,6 +21,7 @@ import { extractCandidates } from '../analysis/extract.ts';
 import { rankCompetitors, toMentions } from '../competitors/classify.ts';
 import { businessesSurfaced, competitorNames, decideAuditStatus, decideLayerState, hasUsableResponse, prospectEvidence, unresolvedIdentities } from './decide.ts';
 import { generateCompetitorOutreach, generateOutreach } from '../outreach/generate.ts';
+import { clearPendingOutreachReview, refreshOutreachReview } from '../outreach/review.ts';
 import type { EvidenceStore } from '../evidence/capture.ts';
 import type { AuditStore } from '../persistence/store.ts';
 import { ensurePublicReport, isPubliclyAvailable, publicUrl } from '../public/tracking.ts';
@@ -112,6 +113,7 @@ export class AuditEngine {
     // A semantic/preflight/final-review failure is stronger than a normal layer
     // dispute, so never retain a possibly stale competitor SMS across this path.
     delete record.competitorOutreachMessage;
+    clearPendingOutreachReview(record);
     for (const layer of LAYERS) {
       if (record.layers[layer].state === 'NOT_TESTED') {
         record.layers[layer].error = `Skipped: ${reason}`;
@@ -390,6 +392,7 @@ export class AuditEngine {
     if (competitorCandidateMessage) record.competitorOutreachMessage = competitorCandidateMessage;
     else delete record.competitorOutreachMessage;
 
+    refreshOutreachReview(record, () => this.now());
     ensurePublicReport(record, this.deps.now); // COMPLETE + semantic release approval when required
     await this.done(record, 'Preparing message');
     delete record.currentStep;
@@ -799,6 +802,7 @@ export function reanalyseRecord(record: AuditRecord): AuditRecord {
     else delete record.outreachMessage;
     ensurePublicReport(record);
   }
+  refreshOutreachReview(record);
   record.updatedAt = new Date().toISOString();
   return record;
 }
@@ -844,6 +848,7 @@ export function summarise(record: AuditRecord, publicBaseUrl?: string) {
     ),
     outreachMessage: record.outreachMessage,
     competitorOutreachMessage: record.competitorOutreachMessage,
+    outreachReview: record.outreachReview,
     competitorDiscovery: record.competitorDiscovery
       ? {
           attempts: record.competitorDiscovery.turns.length,

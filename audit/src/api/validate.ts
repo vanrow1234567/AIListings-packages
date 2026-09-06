@@ -1,6 +1,6 @@
 import type { AuditRequest } from '../domain/types.ts';
 
-/** Validates the POST /api/audits body (business_name, website, location, lead_id). */
+/** Validates the POST /api/audits body (business_name, website, location plus optional CRM/outreach fields). */
 export function validateRequest(body: unknown): { ok: true; value: AuditRequest } | { ok: false; error: string } {
   if (!body || typeof body !== 'object') return { ok: false, error: 'Body must be a JSON object' };
   const b = body as Record<string, unknown>;
@@ -12,6 +12,10 @@ export function validateRequest(body: unknown): { ok: true; value: AuditRequest 
   if (!location) return { ok: false, error: 'location is required' };
   if (!website) return { ok: false, error: 'website is required' };
   const value: AuditRequest = { business_name, website, location };
+  const contact_name = str('contact_name') || str('first_name');
+  if (contact_name) value.contact_name = contact_name;
+  const phone = str('phone');
+  if (phone) value.phone = phone;
   const lead_id = str('lead_id');
   if (lead_id) value.lead_id = lead_id;
   const industry_hint = str('industry_hint') || str('industry');

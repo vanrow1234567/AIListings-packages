@@ -2,7 +2,7 @@ import http from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { AuditEngine } from './audit/engine.ts';
-import type { AuditRequest } from './domain/types.ts';
+import type { AuditRecord, AuditRequest } from './domain/types.ts';
 import type { IntakeResult } from './intake/resolve.ts';
 import { newAuditRecord, summarise } from './audit/engine.ts';
 import { validateRequest } from './api/validate.ts';
@@ -12,6 +12,7 @@ import type { EvidenceStore } from './evidence/capture.ts';
 import type { AuditStore } from './persistence/store.ts';
 import { publicEvidenceFiles, renderPublicReport } from './public/report.ts';
 import { isPubliclyAvailable, recordCtaClick, recordEngagement, recordPageRequest, trackingState } from './public/tracking.ts';
+import { approveOutreachReview, confirmOutreachSent, rejectOutreachReview } from './outreach/review.ts';
 
 export interface AppDeps {
   provider: ChatGptProvider & Partial<Pick<PlaywrightChatGptProvider, 'connectForSignIn'>>;
@@ -62,6 +63,22 @@ export function createApp(deps: AppDeps): http.RequestListener {
   }
 
   const summary = (record: Parameters<typeof summarise>[0]) => summarise(record, deps.publicBaseUrl);
+
+  async function queueAudit(auditRequest: AuditRequest): Promise<AuditRecord> {
+    const record = newAuditRecord(auditRequest, deps.provider.name, now());
+    await deps.store.save(record);
+    void enqueue(async () => {
+      try {
+        await deps.engine.run(record);
+      } catch (err) {
+        log(`[${record.id}] engine failure: ${(err as Error).stack ?? err}`);
+        record.status = 'INCOMPLETE';
+        record.incompleteReason = `Unexpected failure: ${(err as Error).message}`;
+        await deps.store.save(record);
+      }
+    });
+    return record;
+  }
 
   return async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -114,6 +131,104 @@ export function createApp(deps: AppDeps): http.RequestListener {
       if (req.method === 'GET' && url.pathname === '/') {
         return html(res, 200, await readFile(deps.uiFile));
       }
+      if (req.method === 'POST' && url.pathname === '/api/audits/batch') {
+        const body = await readJson(req);
+        const candidates = Array.isArray(body)
+          ? body
+          : body && typeof body === 'object' && Array.isArray((body as { audits?: unknown }).audits)
+            ? (body as { audits: unknown[] }).audits
+            : undefined;
+
+        if (!candidates || candidates.length === 0) {
+          return json(res, 400, { error: 'audits must be a non-empty array' });
+        }
+        if (candidates.length > 25) {
+          return json(res, 400, { error: 'A maximum of 25 audits can be queued at once' });
+        }
+
+        const parsedRequests: AuditRequest[] = [];
+        for (let index = 0; index < candidates.length; index++) {
+          const parsed = validateRequest(candidates[index]);
+          if (!parsed.ok) {
+            return json(res, 400, { error: parsed.error, index });
+          }
+          parsedRequests.push(parsed.value);
+        }
+
+        const records: AuditRecord[] = [];
+        for (const auditRequest of parsedRequests) {
+          records.push(await queueAudit(auditRequest));
+        }
+
+        return json(res, 202, {
+          audits: records.map((record) => ({ id: record.id, status: record.status })),
+        });
+      }
+
+      if (req.method === 'GET' && url.pathname === '/api/review-queue') {
+        const items = (await deps.store.list())
+          .filter((record) => Boolean(record.outreachReview))
+          .map((record) => {
+            const s = summary(record);
+            return {
+              id: record.id,
+              createdAt: record.createdAt,
+              businessName: record.request.business_name,
+              location: record.request.location,
+              auditStatus: record.status,
+              VISIBLE: record.layers.VISIBLE.state,
+              RECOMMENDED: record.layers.RECOMMENDED.state,
+              CONVERSATIONAL: record.layers.CONVERSATIONAL.state,
+              topCompetitors: record.topCompetitors.map((c) => c.name),
+              publicUrl: s.publicUrl,
+              outreachMessage: record.outreachMessage,
+              competitorOutreachMessage: record.competitorOutreachMessage,
+              review: record.outreachReview,
+            };
+          });
+        return json(res, 200, { items });
+      }
+
+      const reviewAction = url.pathname.match(
+        /^\/api\/audits\/([a-zA-Z0-9_-]+)\/review\/(approve|reject|confirm-sent)$/,
+      );
+      if (req.method === 'POST' && reviewAction) {
+        const record = await deps.store.get(reviewAction[1] ?? '');
+        if (!record) return json(res, 404, { error: 'Not found' });
+
+        let body: Record<string, unknown> = {};
+        try {
+          const parsedBody = await readJson(req);
+          if (parsedBody && typeof parsedBody === 'object') {
+            body = parsedBody as Record<string, unknown>;
+          }
+        } catch {
+          return json(res, 400, { error: 'Invalid JSON body' });
+        }
+
+        try {
+          const action = reviewAction[2];
+          if (action === 'approve') {
+            approveOutreachReview(
+              record,
+              body.message,
+              body.recipient_phone,
+              () => now().toISOString(),
+            );
+          } else if (action === 'reject') {
+            rejectOutreachReview(record, body.reason, () => now().toISOString());
+          } else {
+            confirmOutreachSent(record, () => now().toISOString());
+          }
+        } catch (err) {
+          return json(res, 400, { error: (err as Error).message });
+        }
+
+        record.updatedAt = now().toISOString();
+        await deps.store.save(record);
+        return json(res, 200, { ok: true, review: record.outreachReview });
+      }
+
       if (req.method === 'POST' && url.pathname === '/api/audits') {
         const body = await readJson(req);
         let auditRequest: AuditRequest;
@@ -142,18 +257,7 @@ export function createApp(deps: AppDeps): http.RequestListener {
           auditRequest = parsed.value;
         }
 
-        const record = newAuditRecord(auditRequest, deps.provider.name, now());
-        await deps.store.save(record);
-        void enqueue(async () => {
-          try {
-            await deps.engine.run(record);
-          } catch (err) {
-            log(`[${record.id}] engine failure: ${(err as Error).stack ?? err}`);
-            record.status = 'INCOMPLETE';
-            record.incompleteReason = `Unexpected failure: ${(err as Error).message}`;
-            await deps.store.save(record);
-          }
-        });
+        const record = await queueAudit(auditRequest);
         return json(res, 202, { id: record.id, status: record.status });
       }
       if (req.method === 'GET' && url.pathname === '/api/audits') {
