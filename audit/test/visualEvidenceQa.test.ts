@@ -172,7 +172,7 @@ test('semantic service terms prevent SEO Warrington being merged with AI Listing
   assert.equal(result.agreed, true);
 });
 
-test('a parser competitor that vision identifies as a citation/source is disputed', () => {
+test('a parser competitor that vision identifies as a citation/source is rejected without disputing the prospect', () => {
   const layer: LayerResult = {
     layer: 'RECOMMENDED',
     state: 'NO',
@@ -199,7 +199,9 @@ test('a parser competitor that vision identifies as a citation/source is dispute
   };
 
   const result = reconcileLayerVisualEvidence(layer, 'Warrington');
-  assert.equal(result.agreed, false);
+  assert.equal(result.prospectAgreed, true);
+  assert.equal(result.businessesAgreed, false);
+  assert.equal(result.agreed, true);
   assert.deepEqual(result.sourceConflicts, ['TechRadar']);
   assert.ok(result.parserOnlyBusinesses.includes('TechRadar'));
 });
@@ -221,6 +223,7 @@ const website: WebsiteEvidence = {
 
 class Qa implements SemanticQaProvider {
   mismatchRecommended = false;
+  sourceConflictRecommended = false;
   finalCalls = 0;
 
   async preflight(_input: SemanticPreflightInput): Promise<SemanticBusinessReview> {
@@ -255,6 +258,14 @@ class Qa implements SemanticQaProvider {
           businessesRecommended: ['AI Listings', 'Acme Visibility Partners'],
         };
       }
+      if (this.sourceConflictRecommended) {
+        return {
+          ...review('NO'),
+          businessesSurfaced: ['Acme Visibility Partners'],
+          businessesRecommended: ['Acme Visibility Partners'],
+          citationsOrSources: ['Direct First'],
+        };
+      }
       return {
         ...review('NO'),
         businessesSurfaced: ['Acme Visibility Partners'],
@@ -281,8 +292,17 @@ class Qa implements SemanticQaProvider {
   }
 }
 
-async function setup(mismatchRecommended: boolean) {
+async function setup(mismatchRecommended: boolean, sourceConflictRecommended = false) {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'visual-qa-'));
+  const recommendedResponse = sourceConflictRecommended
+    ? textResponse(
+        'Acme Visibility Partners. Source: Direct First.',
+        '<p><strong>Acme Visibility Partners</strong></p><p><strong>Direct First</strong></p>',
+      )
+    : textResponse(
+        'Acme Visibility Partners',
+        '<p><strong>Acme Visibility Partners</strong></p>',
+      );
   const provider = new MockChatGptProvider({
     conversations: [
       {
@@ -294,12 +314,7 @@ async function setup(mismatchRecommended: boolean) {
         ],
       },
       {
-        answers: [
-          textResponse(
-            'Acme Visibility Partners',
-            '<p><strong>Acme Visibility Partners</strong></p>',
-          ),
-        ],
+        answers: [recommendedResponse],
       },
       {
         answers: [
@@ -318,6 +333,7 @@ async function setup(mismatchRecommended: boolean) {
 
   const qa = new Qa();
   qa.mismatchRecommended = mismatchRecommended;
+  qa.sourceConflictRecommended = sourceConflictRecommended;
 
   const evidence = new EvidenceStore(path.join(dir, 'evidence'));
   const store = new AuditStore(path.join(dir, 'audits'));
@@ -364,6 +380,27 @@ test('DOM/vision disagreement fails closed and creates an evaluation case', asyn
   );
   assert.equal(record.quality?.visual?.RECOMMENDED?.agreed, false);
   assert.equal(qa.finalCalls, 0);
+
+  const files = await readdir(path.join(dir, 'evaluations', record.id));
+  assert.ok(files.some((f) => f.startsWith('layer-recommended-dispute-')));
+});
+
+test('competitor/source conflict is excluded without poisoning an agreed prospect layer', async () => {
+  const { record, qa, dir } = await setup(false, true);
+
+  assert.equal(record.layers.RECOMMENDED.state, 'NO');
+  assert.equal(record.layers.RECOMMENDED.prospectPresent, 'NO');
+  assert.equal(record.quality?.visual?.RECOMMENDED?.prospectAgreed, true);
+  assert.equal(record.quality?.visual?.RECOMMENDED?.businessesAgreed, false);
+  assert.equal(record.quality?.visual?.RECOMMENDED?.agreed, true);
+  assert.deepEqual(record.quality?.visual?.RECOMMENDED?.sourceConflicts, ['Direct First']);
+
+  assert.equal(record.status, 'COMPLETE');
+  assert.equal(record.quality?.final?.approved, true);
+  assert.equal(qa.finalCalls, 1);
+  assert.ok(record.publicReport?.token);
+  assert.ok(record.topCompetitors.some((c) => c.name === 'Acme Visibility Partners'));
+  assert.ok(!record.topCompetitors.some((c) => c.name === 'Direct First'));
 
   const files = await readdir(path.join(dir, 'evaluations', record.id));
   assert.ok(files.some((f) => f.startsWith('layer-recommended-dispute-')));

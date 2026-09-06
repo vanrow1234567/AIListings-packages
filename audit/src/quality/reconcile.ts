@@ -93,12 +93,14 @@ export function visualConfirmsBusinessName(
 /**
  * Independent witness reconciliation.
  *
- * Hard release disputes:
+ * Hard prospect-release disputes:
  * - missing visual witness or confidence below 0.90;
  * - target-prospect disagreement on ANY individual turn;
- * - aggregate target-prospect disagreement;
- * - parser says "competitor/provider" while vision explicitly classifies the same
- *   named entity only as a source/citation.
+ * - aggregate target-prospect disagreement.
+ *
+ * Competitor/source contradictions are tracked separately. They disqualify the
+ * affected competitor from verified competitor evidence, but do not invalidate an
+ * otherwise agreed prospect-presence verdict.
  *
  * A Conversational sequence can validly be NO on the problem prompt and YES only
  * after a natural follow-up. That is agreement when parser and vision independently
@@ -234,7 +236,10 @@ export function reconcileLayerVisualEvidence(
     deterministicProspectPresent === visualProspectPresent;
 
   const businessesAgreed = allHighConfidence && sourceConflicts.length === 0;
-  const agreed = prospectAgreed && businessesAgreed;
+  // Layer release is about the TARGET PROSPECT. A bad competitor classification
+  // must not poison an otherwise agreed target-prospect verdict. Competitor
+  // eligibility is enforced independently by the same-turn visual filter.
+  const agreed = prospectAgreed;
 
   const turnSequence = turnProspectComparisons
     .map(
@@ -275,7 +280,9 @@ export function reconcileLayerVisualEvidence(
     agreed,
     confidence,
     reason: agreed
-      ? `Independent witnesses agree on material release facts. Coverage gaps, if any, require final multimodal review. ${parts.join('; ')}.`
-      : `Independent evidence dispute. ${parts.join('; ')}.`,
+      ? sourceConflicts.length > 0
+        ? `Independent witnesses agree on target-prospect presence. Competitor/source conflicts are isolated to competitor eligibility and must not be used as verified competitors. ${parts.join('; ')}.`
+        : `Independent witnesses agree on material prospect release facts. Coverage gaps, if any, require final multimodal review. ${parts.join('; ')}.`
+      : `Independent target-prospect evidence dispute. ${parts.join('; ')}.`,
   };
 }

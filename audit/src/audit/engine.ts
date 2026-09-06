@@ -428,14 +428,22 @@ export class AuditEngine {
     const hasCoverageGap =
       reconciliation.parserOnlyBusinesses.length > 0 ||
       reconciliation.visionOnlyBusinesses.length > 0;
+    const hasCompetitorConflict = reconciliation.sourceConflicts.length > 0;
 
-    if (reconciliation.agreed && hasCoverageGap && this.deps.evaluation) {
-      await this.deps.evaluation.saveLayerCoverageGap(record, reconciliation).catch((err) => {
-        this.deps.log?.(`[${record.id}] failed to save visual coverage gap: ${(err as Error).message}`);
-      });
+    if (reconciliation.agreed) {
+      // A provider/source contradiction is still valuable regression evidence, but
+      // it is a COMPETITOR-quality issue, not a target-prospect layer failure.
+      if (hasCompetitorConflict && this.deps.evaluation) {
+        await this.deps.evaluation.saveLayerDispute(record, reconciliation).catch((err) => {
+          this.deps.log?.(`[${record.id}] failed to save competitor/source dispute: ${(err as Error).message}`);
+        });
+      } else if (hasCoverageGap && this.deps.evaluation) {
+        await this.deps.evaluation.saveLayerCoverageGap(record, reconciliation).catch((err) => {
+          this.deps.log?.(`[${record.id}] failed to save visual coverage gap: ${(err as Error).message}`);
+        });
+      }
+      return;
     }
-
-    if (reconciliation.agreed) return;
 
     // Persist the original parser conclusion before the public/commercial layer is
     // deliberately converted to a non-conclusive dispute state.
@@ -447,7 +455,7 @@ export class AuditEngine {
 
     result.state = 'EVIDENCE_DISPUTED';
     result.prospectPresent = 'UNRESOLVED';
-    result.error = `Independent DOM/parser and screenshot evidence did not agree. ${reconciliation.reason}`;
+    result.error = `Independent DOM/parser and screenshot evidence did not agree about the target prospect. ${reconciliation.reason}`;
   }
 
   private async layerScreenshotInputs(record: AuditRecord): Promise<{ layer: Layer; screenshotDataUrl: string }[]> {
