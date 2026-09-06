@@ -237,6 +237,10 @@ export function classifyCandidate(c: Candidate, prospect: Prospect): EntityKind 
   if (looksLikePlaceOrAddress(c.raw, prospect.location)) return 'unrelated';
   const known = knownKind(c.raw, c.domain);
   if (known) return known;
+  // ChatGPT's business-marker UI explicitly identifies a local business. Once prospect,
+  // infrastructure, place/address and known intermediary checks have failed, it is a
+  // genuine alternative business rather than an inferred proper noun.
+  if (c.source === 'map') return 'competitor';
   // A bare domain that is not the prospect's is never a named business result on its own.
   if (isBareDomain(c.raw)) return 'uncertain';
 

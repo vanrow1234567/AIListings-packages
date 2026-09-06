@@ -7,7 +7,7 @@ import { hostOf } from './normalise.ts';
 export interface Candidate {
   raw: string;
   /** Where it came from; used to weigh confidence. */
-  source: 'bold' | 'heading' | 'link' | 'list' | 'text';
+  source: 'bold' | 'heading' | 'link' | 'list' | 'text' | 'map';
   /** Domain of the anchor this visible name linked to, if any. Supporting information only. */
   domain?: string;
   /** Full href of that anchor, for identity resolution. */
@@ -54,6 +54,29 @@ export function extractCandidates(response: ChatGptResponse): Candidate[] {
   const html = response.html || '';
   const text = response.text || '';
 
+  // ChatGPT renders supporting web sources as citation pills. Their anchor text is
+  // a publication/source name, not a business recommendation, so exclude those
+  // anchors from candidate extraction by UI role rather than by domain blacklist.
+  const citationHrefs = new Set<string>();
+  for (const m of html.matchAll(
+    /<span\b[^>]*data-testid=["']webpage-citation-pill["'][^>]*>[\s\S]*?<a\b[^>]*href=["']([^"']+)["']/gi,
+  )) {
+    const href = m[1] ?? '';
+    if (href) citationHrefs.add(href);
+  }
+
+  // ChatGPT local-business/map results render genuine business names in explicit
+  // business-marker labels. These labels are user-visible recommendation evidence.
+  for (const m of html.matchAll(
+    /<div\b[^>]*data-testid=["']business-marker-label["'][^>]*>([\s\S]*?)<\/div>/gi,
+  )) {
+    const label = clean(m[1] ?? '');
+    // Map labels often use "Brand | descriptor". The brand segment is itself
+    // visibly displayed and is the safer identity candidate.
+    const primary = label.split(/\s+\|\s+/)[0]?.trim() || label;
+    pushName(out, primary, 'map', text);
+  }
+
   for (const m of html.matchAll(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi)) {
     pushName(out, clean(m[2] ?? ''), 'bold', text);
   }
@@ -70,6 +93,7 @@ export function extractCandidates(response: ChatGptResponse): Candidate[] {
     const anchor = clean(m[2] ?? '');
     const domain = hostOf(href);
     if (!anchor || /^https?:\/\//i.test(anchor)) continue;
+    if (citationHrefs.has(href)) continue;
     pushName(out, anchor, 'link', text, domain, href);
   }
   for (const m of text.matchAll(TEXT_NAME_RE)) {

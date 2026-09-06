@@ -157,7 +157,7 @@ export interface ProspectMatchEvidence {
   /** Surrounding visible text for human verification against the screenshot. */
   context: string;
   /** Where in the rendered answer the snippet was found. */
-  source: 'bold' | 'heading' | 'link' | 'list' | 'text';
+  source: 'bold' | 'heading' | 'link' | 'list' | 'text' | 'map';
   matchedBy: 'business_name' | 'name_with_domain' | 'name_alias' | 'visible_domain' | 'resolved_destination';
   turnIndex: number;
 }
