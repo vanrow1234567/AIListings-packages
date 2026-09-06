@@ -357,6 +357,11 @@ test('DOM/vision disagreement fails closed and creates an evaluation case', asyn
   assert.equal(record.status, 'INCOMPLETE');
   assert.equal(record.publicReport, undefined);
   assert.equal(record.outreachMessage, undefined);
+  assert.match(record.competitorOutreachMessage ?? '', /Acme Visibility Partners/);
+  assert.match(
+    record.competitorOutreachMessage ?? '',
+    /Across the searches we completed, ChatGPT surfaced/,
+  );
   assert.equal(record.quality?.visual?.RECOMMENDED?.agreed, false);
   assert.equal(qa.finalCalls, 0);
 

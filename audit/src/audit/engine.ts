@@ -19,7 +19,7 @@ import { brandDiagnosticPrompt, generateLayerPrompts, nextConversationalFollowUp
 import { extractCandidates } from '../analysis/extract.ts';
 import { rankCompetitors, toMentions } from '../competitors/classify.ts';
 import { businessesSurfaced, competitorNames, decideAuditStatus, decideLayerState, hasUsableResponse, prospectEvidence, unresolvedIdentities } from './decide.ts';
-import { generateOutreach } from '../outreach/generate.ts';
+import { generateCompetitorOutreach, generateOutreach } from '../outreach/generate.ts';
 import type { EvidenceStore } from '../evidence/capture.ts';
 import type { AuditStore } from '../persistence/store.ts';
 import { ensurePublicReport, isPubliclyAvailable, publicUrl } from '../public/tracking.ts';
@@ -102,6 +102,9 @@ export class AuditEngine {
     record.status = 'INCOMPLETE';
     record.incompleteReason = reason;
     delete record.outreachMessage;
+    // A semantic/preflight/final-review failure is stronger than a normal layer
+    // dispute, so never retain a possibly stale competitor SMS across this path.
+    delete record.competitorOutreachMessage;
     for (const layer of LAYERS) {
       if (record.layers[layer].state === 'NOT_TESTED') {
         record.layers[layer].error = `Skipped: ${reason}`;
@@ -248,6 +251,17 @@ export class AuditEngine {
       : all;
 
     record.topCompetitors = rankCompetitors(competitorEvidence, understanding.prospect.location);
+
+    // Decoupled competitor evidence path: in production this is built only from
+    // parser + visual agreement in the same turn. It does not depend on whether
+    // the prospect's own three-layer verdict is COMPLETE.
+    const competitorCandidateMessage = visualRequired
+      ? generateCompetitorOutreach({
+          prospect: understanding.prospect,
+          competitors: record.topCompetitors,
+        })
+      : undefined;
+
     await this.done(record, 'Identifying competitors');
 
     await this.step(record, 'Preparing message');
@@ -331,6 +345,11 @@ export class AuditEngine {
     }
 
     if (candidateMessage) record.outreachMessage = candidateMessage;
+    else delete record.outreachMessage;
+
+    if (competitorCandidateMessage) record.competitorOutreachMessage = competitorCandidateMessage;
+    else delete record.competitorOutreachMessage;
+
     ensurePublicReport(record, this.deps.now); // COMPLETE + semantic release approval when required
     await this.done(record, 'Preparing message');
     delete record.currentStep;
@@ -595,6 +614,7 @@ export function reanalyseRecord(record: AuditRecord): AuditRecord {
   record.status = decision.status;
   if (decision.reason) record.incompleteReason = decision.reason;
   else delete record.incompleteReason;
+  delete record.competitorOutreachMessage;
   const message = generateOutreach({
     prospect: u.prospect,
     service: u.service,
@@ -659,6 +679,7 @@ export function summarise(record: AuditRecord, publicBaseUrl?: string) {
       LAYERS.map((l) => [l, { prospectPresent: record.layers[l].prospectPresent ?? null, businessesSurfaced: record.layers[l].businessesSurfaced, prospectMatchEvidence: record.layers[l].prospectMatchEvidence ?? [] }]),
     ),
     outreachMessage: record.outreachMessage,
+    competitorOutreachMessage: record.competitorOutreachMessage,
     evidence: record.evidence,
     incompleteReason: record.incompleteReason,
   };

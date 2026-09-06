@@ -10,11 +10,33 @@ export interface OutreachInput {
   firstProspectTurn?: Partial<Record<Layer, number>>;
 }
 
+export interface CompetitorOutreachInput {
+  prospect: Prospect;
+  /** Must already be evidence-gated by the audit engine. */
+  competitors: Competitor[];
+}
+
 function list(names: string[]): string {
   if (names.length === 0) return '';
   if (names.length === 1) return names[0] ?? '';
   if (names.length === 2) return `${names[0]} and ${names[1]}`;
   return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
+/**
+ * Competitor-first SMS. This is intentionally decoupled from the prospect verdict:
+ * it says only that independently verified businesses surfaced in completed searches.
+ * It can therefore be used when a prospect layer is EVIDENCE_DISPUTED, while the
+ * full prospect audit/report remains fail-closed.
+ */
+export function generateCompetitorOutreach(
+  input: CompetitorOutreachInput,
+): string | undefined {
+  const names = input.competitors.slice(0, 3).map((c) => c.name);
+  const namedText = list(names);
+  if (!namedText) return undefined;
+
+  return `Hi there, we've been running ChatGPT searches for your market in ${input.prospect.location}. Across the searches we completed, ChatGPT surfaced ${namedText}. We're comparing where ${input.prospect.name} appears against those businesses. Would you like me to send you the screenshots?`;
 }
 
 /**

@@ -394,7 +394,13 @@ export interface AuditRecord {
   layers: Record<Layer, LayerResult>;
   brandDiagnostic?: BrandDiagnostic;
   topCompetitors: Competitor[];
+  /** Full prospect-verdict outreach. Released only when the audit itself is safe to claim. */
   outreachMessage?: string;
+  /**
+   * Competitor-first outreach built only from independently verified competitor
+   * evidence. May exist when the prospect audit is INCOMPLETE/EVIDENCE_DISPUTED.
+   */
+  competitorOutreachMessage?: string;
   evidence: Evidence;
   /** Human readable explanation when the audit is INCOMPLETE / SIGN_IN_REQUIRED. */
   incompleteReason?: string;
@@ -414,6 +420,8 @@ export interface AuditSummary {
   CONVERSATIONAL: LayerState;
   topCompetitors: string[];
   outreachMessage?: string;
+  /** Safe competitor-first SMS; independent of the prospect verdict. */
+  competitorOutreachMessage?: string;
   evidence: Evidence;
   incompleteReason?: string;
   /** Prospect-facing report URL. Present only for COMPLETE audits. */

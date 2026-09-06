@@ -137,5 +137,6 @@ test('final semantic rejection prevents public report and outreach release', asy
   assert.equal(record.status, 'INCOMPLETE');
   assert.equal(record.publicReport, undefined);
   assert.equal(record.outreachMessage, undefined);
+  assert.equal(record.competitorOutreachMessage, undefined);
   assert.equal(record.quality?.final?.approved, false);
 });

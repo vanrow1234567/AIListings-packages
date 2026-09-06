@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { generateOutreach } from '../src/outreach/generate.ts';
+import { generateCompetitorOutreach, generateOutreach } from '../src/outreach/generate.ts';
 import type { Competitor, Prospect } from '../src/domain/types.ts';
 
 const prospect: Prospect = {
@@ -117,4 +117,23 @@ test('cross-search competitor context is capped at the top three verified names'
   assert.match(message ?? '', /Two Agency/);
   assert.match(message ?? '', /Three Agency/);
   assert.doesNotMatch(message ?? '', /Four Agency/);
+});
+
+test('competitor-first SMS is independent of the prospect audit verdict', () => {
+  const message = generateCompetitorOutreach({
+    prospect,
+    competitors: [
+      competitor('Gregg King', ['VISIBLE', 'CONVERSATIONAL']),
+      competitor('Crane Consultancy', ['VISIBLE', 'RECOMMENDED']),
+      competitor('Direct First', ['VISIBLE', 'RECOMMENDED']),
+      competitor('Fourth Agency', ['VISIBLE']),
+    ],
+  });
+
+  assert.match(message ?? '', /Gregg King/);
+  assert.match(message ?? '', /Crane Consultancy/);
+  assert.match(message ?? '', /Direct First/);
+  assert.doesNotMatch(message ?? '', /Fourth Agency/);
+  assert.match(message ?? '', /Across the searches we completed, ChatGPT surfaced/);
+  assert.doesNotMatch(message ?? '', /recommended you|didn't mention you|didn't suggest you/);
 });
