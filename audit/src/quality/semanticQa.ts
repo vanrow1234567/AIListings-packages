@@ -2,6 +2,7 @@ import type {
   AuditRequest,
   BusinessUnderstanding,
   Competitor,
+  CompetitorDiscovery,
   Layer,
   LayerEvidenceReconciliation,
   LayerResult,
@@ -20,7 +21,7 @@ export interface SemanticPreflightInput {
 export interface SemanticVisualInput {
   request: AuditRequest;
   understanding: BusinessUnderstanding;
-  layer: Layer;
+  layer: Layer | 'COMPETITOR_DISCOVERY';
   turnIndex: number;
   prompt: string;
   screenshotDataUrl: string;
@@ -37,6 +38,8 @@ export interface SemanticFinalInput {
   };
   reconciliations?: Partial<Record<Layer, LayerEvidenceReconciliation>>;
   layerScreenshots?: { layer: Layer; screenshotDataUrl: string }[];
+  competitorDiscovery?: CompetitorDiscovery;
+  competitorDiscoveryScreenshots?: { index: number; prompt: string; screenshotDataUrl: string }[];
   competitors: Competitor[];
   candidateOutreach: string;
 }
@@ -332,7 +335,7 @@ export class OpenAiSemanticQaProvider implements SemanticQaProvider {
     const layerRule =
       input.layer === 'VISIBLE'
         ? 'YES only if the target business is visibly surfaced as a business/result somewhere in the answer.'
-        : input.layer === 'RECOMMENDED'
+        : input.layer === 'RECOMMENDED' || input.layer === 'COMPETITOR_DISCOVERY'
           ? 'YES only if the target business is visibly recommended, shortlisted, suggested, or presented as a positive option. A publication/citation/source does not count.'
           : 'YES only if the target business is visibly introduced or suggested as a provider during this natural problem/buying conversation. A publication/citation/source does not count.';
 
@@ -386,6 +389,8 @@ export class OpenAiSemanticQaProvider implements SemanticQaProvider {
       'Use reconciliation.turnProspectComparisons to check target presence turn by turn. A Conversational NO on the opening problem prompt followed by YES after a natural follow-up is a valid NO-to-YES journey when parser and vision agree on BOTH turns; do not mislabel that sequence as a parser/vision disagreement.',
       'The outreach must describe the turn that actually produced the prospect. If the prospect first appeared only after a follow-up asking who to speak to, reject wording that implies the opening problem prompt itself named or recommended the prospect.',
       'Never override a real target-prospect turn disagreement. A provider-vs-source contradiction disqualifies that competitor, but does not by itself invalidate an otherwise agreed target-prospect layer. Reject if a contradicted competitor is still included in the supplied competitors/outreach or if the conflict makes another material claim inaccurate.',
+      'Dedicated competitor-discovery searches are commercial enrichment only. They may support a named competitor when parser and screenshot vision independently confirm the same recommended provider, but they must NEVER change Visible / Recommended / Conversational prospect states.',
+      'A localMarket flag means ChatGPT was explicitly asked for local providers in the audited market (or showed a local-business marker). Treat it only as ranking context, not independent proof of a physical address.',
       'This is a credibility gate: uncertainty must fail closed.',
       'approved=true only when you are at least 90% confident the report is safe and relevant to send to this prospect.',
     ].join(' ');
@@ -416,6 +421,24 @@ export class OpenAiSemanticQaProvider implements SemanticQaProvider {
     for (const shot of input.layerScreenshots ?? []) {
       imageInputs.push({ dataUrl: shot.screenshotDataUrl, detail: 'high' });
     }
+    for (const shot of input.competitorDiscoveryScreenshots ?? []) {
+      imageInputs.push({ dataUrl: shot.screenshotDataUrl, detail: 'high' });
+    }
+
+    const compactCompetitorDiscovery = input.competitorDiscovery
+      ? {
+          prompts: input.competitorDiscovery.prompts,
+          verifiedCompetitors: input.competitorDiscovery.verifiedCompetitors,
+          localMarketCompetitors: input.competitorDiscovery.localMarketCompetitors,
+          error: input.competitorDiscovery.error ?? null,
+          turns: input.competitorDiscovery.turns.map((t) => ({
+            prompt: t.prompt,
+            responseText: t.response.text.slice(0, 12_000),
+            visualReview: t.visualReview ?? null,
+            visualReviewError: t.visualReviewError ?? null,
+          })),
+        }
+      : null;
 
     const result = await this.request<Omit<SemanticFinalReview, 'model'>>(
       this.reviewModel,
@@ -437,7 +460,16 @@ export class OpenAiSemanticQaProvider implements SemanticQaProvider {
         websiteEvidence: compactWebsite(input.website),
         layers: compactLayers,
         layerScreenshotOrder: (input.layerScreenshots ?? []).map((s) => s.layer),
-        competitors: input.competitors.map((c) => c.name),
+        competitorDiscovery: compactCompetitorDiscovery,
+        competitorDiscoveryScreenshotOrder: (input.competitorDiscoveryScreenshots ?? []).map((s) => ({
+          index: s.index,
+          prompt: s.prompt,
+        })),
+        competitors: input.competitors.map((c) => ({
+          name: c.name,
+          localMarketEvidence: c.localMarketEvidence === true,
+          discoveryMentions: c.discoveryMentions ?? 0,
+        })),
         candidateOutreach: input.candidateOutreach,
       },
       imageInputs,

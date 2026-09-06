@@ -176,8 +176,16 @@ export interface EntityMention {
   /** Display name (first / cleanest variant seen). */
   name: string;
   kind: EntityKind;
-  layer: Layer | 'BRAND_DIAGNOSTIC';
+  layer: Layer | 'BRAND_DIAGNOSTIC' | 'COMPETITOR_DISCOVERY';
   turnIndex: number;
+  /** Where the visible candidate came from in the rendered ChatGPT answer. */
+  source?: ProspectMatchEvidence['source'];
+  /**
+   * Evidence that ChatGPT presented this provider as local/relevant to the audited
+   * market (e.g. local discovery prompt or local-business map marker). This is a
+   * ranking signal only; it is never allowed to make an unverified competitor valid.
+   */
+  localMarketEvidence?: boolean;
   /** Domain if the mention came with a link. */
   domain?: string;
   /** Full href of the visible link, when there was one. */
@@ -260,6 +268,23 @@ export interface BrandDiagnostic {
   note: 'Brand-specific diagnostic. Never counted as RECOMMENDED evidence.';
 }
 
+/**
+ * Commercial enrichment only. These extra searches NEVER change Visible /
+ * Recommended / Conversational verdicts. Their sole purpose is to find additional
+ * independently verified competitors when the three audit layers produced fewer than
+ * the target competitor set.
+ */
+export interface CompetitorDiscovery {
+  prompts: { prompt: string; localMarket: boolean }[];
+  turns: ConversationTurn[];
+  entities: EntityMention[];
+  /** Parser + screenshot-vision confirmed provider names only. */
+  verifiedCompetitors: string[];
+  /** Verified names from explicit local-market evidence. */
+  localMarketCompetitors: string[];
+  error?: string;
+}
+
 export interface Competitor {
   name: string;
   /** Layers in which this competitor appeared. */
@@ -268,6 +293,10 @@ export interface Competitor {
   mentions: number;
   score: number;
   domain?: string;
+  /** Number of verified dedicated competitor-discovery responses naming it. */
+  discoveryMentions?: number;
+  /** Strong commercial ordering signal; never an eligibility signal. */
+  localMarketEvidence?: boolean;
 }
 
 export interface Evidence {
@@ -275,6 +304,8 @@ export interface Evidence {
   recommendedScreenshots: string[];
   conversationalScreenshots: string[];
   brandDiagnosticScreenshots: string[];
+  /** Additional verified competitor-discovery screenshots. Optional for old stored audits. */
+  competitorDiscoveryScreenshots?: string[];
 }
 
 /**
@@ -393,6 +424,7 @@ export interface AuditRecord {
   understanding?: BusinessUnderstanding;
   layers: Record<Layer, LayerResult>;
   brandDiagnostic?: BrandDiagnostic;
+  competitorDiscovery?: CompetitorDiscovery;
   topCompetitors: Competitor[];
   /** Full prospect-verdict outreach. Released only when the audit itself is safe to claim. */
   outreachMessage?: string;

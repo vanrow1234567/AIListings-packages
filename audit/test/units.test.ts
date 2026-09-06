@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { understandBusiness, toDomain, parseHtml } from '../src/business/understand.ts';
-import { generateLayerPrompts, nextConversationalFollowUp, brandDiagnosticPrompt } from '../src/prompts/generate.ts';
+import { generateLayerPrompts, nextConversationalFollowUp, brandDiagnosticPrompt, competitorDiscoveryPrompts } from '../src/prompts/generate.ts';
 import { distinctiveSegmentTokens, extractCandidates, looksLikeName, looksLikeScopePhrase, splitJoinedNames } from '../src/analysis/extract.ts';
 import { sameBusiness, nameKey } from '../src/analysis/normalise.ts';
 import { classifyCandidate, rankCompetitors, toMentions } from '../src/competitors/classify.ts';
@@ -62,6 +62,12 @@ test('prompts: one per layer, prospect never named, follow-ups adapt', async () 
   assert.equal(nextConversationalFollowUp(u, 'Try Solent Roofing.', 1, 1), undefined, 'stop once businesses have been named');
   assert.equal(nextConversationalFollowUp(u, 'x', 3, 0), undefined, 'never more than three follow-ups');
   assert.equal(brandDiagnosticPrompt(u), 'Would you recommend SPP Roofing for roof repairs in Southampton?');
+  const discovery = competitorDiscoveryPrompts(u);
+  assert.equal(discovery.length, 2);
+  assert.match(discovery[0]!.prompt, /local roofing companies in Southampton/i);
+  assert.equal(discovery[0]!.localMarket, true);
+  assert.equal(discovery[1]!.localMarket, false);
+  for (const x of discovery) assert.doesNotMatch(x.prompt, /SPP Roofing/i);
 });
 
 test('extraction: bold names, links, list leads and text patterns', () => {
@@ -112,6 +118,39 @@ test('ranking prefers Conversational, then Recommended, then recurrence; never p
   assert.equal(ranked.length, 3);
   assert.deepEqual(rankCompetitors([m('Only Roofing', 'VISIBLE')], 'Southampton').map((c) => c.name), ['Only Roofing']);
   assert.deepEqual(rankCompetitors([], 'Southampton'), []);
+});
+
+test('ranking puts a verified local-market rival ahead of a stronger non-local rival', () => {
+  const m = (
+    name: string,
+    layer: EntityMention['layer'],
+    turnIndex = 0,
+    localMarketEvidence = false,
+  ): EntityMention => ({
+    raw: name,
+    key: nameKey(name, 'Southampton'),
+    name,
+    kind: 'competitor',
+    layer,
+    turnIndex,
+    ...(localMarketEvidence ? { localMarketEvidence: true } : {}),
+  });
+
+  const ranked = rankCompetitors(
+    [
+      m('National Roofing Ltd', 'VISIBLE'),
+      m('National Roofing Ltd', 'RECOMMENDED'),
+      m('National Roofing Ltd', 'CONVERSATIONAL', 1),
+      m('Southgate Roofing Ltd', 'COMPETITOR_DISCOVERY', 0, true),
+      m('Harbour Roofing Ltd', 'COMPETITOR_DISCOVERY', 1),
+    ],
+    'Southampton',
+  );
+
+  assert.equal(ranked[0]?.name, 'Southgate Roofing Ltd');
+  assert.equal(ranked[0]?.localMarketEvidence, true);
+  assert.ok(ranked.some((c) => c.name === 'National Roofing Ltd'));
+  assert.ok(ranked.some((c) => c.name === 'Harbour Roofing Ltd'));
 });
 
 test('toMentions merges variants inside one response', () => {

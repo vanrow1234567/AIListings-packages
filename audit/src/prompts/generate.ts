@@ -60,6 +60,34 @@ export function nextConversationalFollowUp(
   return `Which one of those would you pick first for ${u.customerRequirement}, and why?`;
 }
 
+export interface CompetitorDiscoveryPrompt {
+  prompt: string;
+  /**
+   * True only when the wording explicitly asks ChatGPT for local providers in the
+   * audited market. This can boost ordering AFTER parser + vision verification.
+   */
+  localMarket: boolean;
+}
+
+/**
+ * Extra competitor searches used only when the normal three audit layers produced
+ * fewer than three verified competitors. The prospect is deliberately never named.
+ */
+export function competitorDiscoveryPrompts(
+  u: BusinessUnderstanding,
+): CompetitorDiscoveryPrompt[] {
+  return [
+    {
+      prompt: `Which local ${u.providerNoun} in ${u.market} would you recommend? Please name three specific businesses you would genuinely consider.`,
+      localMarket: true,
+    },
+    {
+      prompt: `What other ${u.providerNoun} serving ${u.market} would you suggest I compare before choosing? Please name specific businesses.`,
+      localMarket: false,
+    },
+  ];
+}
+
 /** Separate diagnostic. Never counted as RECOMMENDED evidence. */
 export function brandDiagnosticPrompt(u: BusinessUnderstanding): string {
   return `Would you recommend ${u.prospect.name} for ${u.customerRequirement} in ${u.market}?`;

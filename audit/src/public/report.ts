@@ -67,7 +67,12 @@ function fileName(evidencePath: string): string {
 /** Basenames of every screenshot that belongs to this audit's evidence. Anything else is not served publicly. */
 export function publicEvidenceFiles(record: AuditRecord): string[] {
   const e = record.evidence;
-  return [...e.visibleScreenshots, ...e.recommendedScreenshots, ...e.conversationalScreenshots].map(fileName);
+  return [
+    ...e.visibleScreenshots,
+    ...e.recommendedScreenshots,
+    ...e.conversationalScreenshots,
+    ...(e.competitorDiscoveryScreenshots ?? []),
+  ].map(fileName);
 }
 
 function formatDate(iso: string): string {
@@ -107,6 +112,17 @@ export function renderPublicReport(record: AuditRecord, opts: PublicReportOption
     RECOMMENDED: record.evidence.recommendedScreenshots.map(fileName),
     CONVERSATIONAL: record.evidence.conversationalScreenshots.map(fileName),
   };
+
+  const competitorDiscoveryEvidence = record.competitorDiscovery?.turns
+    .map((turn, i) => {
+      const shot = turn.screenshotPath ? fileName(turn.screenshotPath) : '';
+      if (!shot) return '';
+      return `<details><summary><span>Additional competitor search ${i + 1}</span><span class="tag">EVIDENCE</span></summary>
+      <p class="q">We also asked: <em>“${esc(turn.prompt)}”</em></p>
+      <figure><img loading="lazy" src="${esc(`${base}/evidence/${encodeURIComponent(shot)}`)}" alt="Additional competitor search screenshot ${i + 1}"><figcaption>ChatGPT, additional competitor search ${i + 1}</figcaption></figure></details>`;
+    })
+    .filter(Boolean)
+    .join('') ?? '';
 
   const card = (layer: Layer) => {
     const c = LAYER_COPY[layer];
@@ -221,6 +237,7 @@ export function renderPublicReport(record: AuditRecord, opts: PublicReportOption
 
   <h2>Evidence</h2>
   ${LAYERS.map(evidence).join('')}
+  ${competitorDiscoveryEvidence}
 
   <footer>Results reflect the answers ChatGPT displayed when we ran these tests${date ? ` on ${esc(date)}` : ''}. ChatGPT answers vary between sessions; screenshots are provided so you can see exactly what we saw. Prepared for ${esc(name)}, ${esc(location)}.</footer>
 </main>

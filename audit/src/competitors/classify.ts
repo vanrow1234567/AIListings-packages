@@ -314,6 +314,7 @@ export function toMentions(
       kind,
       layer,
       turnIndex,
+      source: c.source,
     };
     if (c.domain) m.domain = c.domain;
     if (c.href) m.href = c.href;
@@ -323,11 +324,24 @@ export function toMentions(
   return mentions;
 }
 
-const LAYER_WEIGHT: Record<Layer, number> = { CONVERSATIONAL: 3, RECOMMENDED: 2, VISIBLE: 1 };
+const ORIGIN_WEIGHT: Record<Layer | 'COMPETITOR_DISCOVERY', number> = {
+  CONVERSATIONAL: 3,
+  RECOMMENDED: 2,
+  COMPETITOR_DISCOVERY: 2,
+  VISIBLE: 1,
+};
+
+function isLayer(value: EntityMention['layer']): value is Layer {
+  return value === 'VISIBLE' || value === 'RECOMMENDED' || value === 'CONVERSATIONAL';
+}
 
 /**
- * Rank genuine competitors across all layers. Prefers Conversational, then
- * Recommended, then recurrence. Never pads the list.
+ * Rank VERIFIED competitors. Eligibility must already have been established by the
+ * caller. A verified local-market rival sorts ahead of a non-local rival, then the
+ * existing Conversational / Recommended / recurrence strength decides the order.
+ *
+ * Locality is therefore a SALES-RELEVANCE signal only. It can never rescue an
+ * unverified provider or pad the list.
  */
 export function rankCompetitors(mentions: EntityMention[], location: string, limit = 3): Competitor[] {
   const groups: { rep: EntityMention; all: EntityMention[] }[] = [];
@@ -338,16 +352,34 @@ export function rankCompetitors(mentions: EntityMention[], location: string, lim
     if (g) g.all.push(m);
     else groups.push({ rep: m, all: [m] });
   }
+
   const ranked: Competitor[] = groups.map((g) => {
-    const layers = [...new Set(g.all.map((m) => m.layer as Layer))];
+    const layers = [...new Set(g.all.map((m) => m.layer).filter(isLayer))];
+    const origins = [...new Set(g.all.map((m) => m.layer).filter((l) => l !== 'BRAND_DIAGNOSTIC'))] as (Layer | 'COMPETITOR_DISCOVERY')[];
     const distinctTurns = new Set(g.all.map((m) => `${m.layer}:${m.turnIndex}`)).size;
-    const score = layers.reduce((s, l) => s + LAYER_WEIGHT[l], 0) + (layers.length - 1) + (distinctTurns - 1) * 0.5;
+    const score =
+      origins.reduce((s, origin) => s + ORIGIN_WEIGHT[origin], 0) +
+      Math.max(0, origins.length - 1) +
+      Math.max(0, distinctTurns - 1) * 0.5;
     const name = g.all.map((m) => m.name).sort((a, b) => a.length - b.length)[0] ?? g.rep.name;
     const c: Competitor = { name, layers, mentions: distinctTurns, score };
     const domain = g.all.find((m) => m.domain)?.domain;
     if (domain) c.domain = domain;
+    const discoveryMentions = new Set(
+      g.all
+        .filter((m) => m.layer === 'COMPETITOR_DISCOVERY')
+        .map((m) => m.turnIndex),
+    ).size;
+    if (discoveryMentions > 0) c.discoveryMentions = discoveryMentions;
+    if (g.all.some((m) => m.localMarketEvidence === true)) c.localMarketEvidence = true;
     return c;
   });
-  ranked.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+
+  ranked.sort(
+    (a, b) =>
+      Number(b.localMarketEvidence === true) - Number(a.localMarketEvidence === true) ||
+      b.score - a.score ||
+      a.name.localeCompare(b.name),
+  );
   return ranked.slice(0, limit);
 }

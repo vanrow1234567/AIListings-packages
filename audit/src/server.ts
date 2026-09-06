@@ -25,6 +25,7 @@ const engine = new AuditEngine({
   ...(semanticQa ? { semanticQa } : {}),
   semanticQaRequired: process.env.SEMANTIC_QA_REQUIRED !== '0',
   visualQaRequired: process.env.VISION_QA_REQUIRED !== '0',
+  competitorDiscoveryEnabled: process.env.COMPETITOR_DISCOVERY_ENABLED !== '0',
   evaluation,
   log,
 });

@@ -4,6 +4,7 @@ import type {
   AuditRequest,
   BrandDiagnostic,
   BusinessUnderstanding,
+  CompetitorDiscovery,
   ConversationTurn,
   EntityMention,
   Layer,
@@ -15,7 +16,7 @@ import { LAYERS } from '../domain/types.ts';
 import { SignInRequiredError } from '../domain/errors.ts';
 import type { ChatGptConversation, ChatGptProvider } from '../chatgpt/provider.ts';
 import { understandBusiness, type WebsiteFetcher } from '../business/understand.ts';
-import { brandDiagnosticPrompt, generateLayerPrompts, nextConversationalFollowUp } from '../prompts/generate.ts';
+import { brandDiagnosticPrompt, competitorDiscoveryPrompts, generateLayerPrompts, nextConversationalFollowUp } from '../prompts/generate.ts';
 import { extractCandidates } from '../analysis/extract.ts';
 import { rankCompetitors, toMentions } from '../competitors/classify.ts';
 import { businessesSurfaced, competitorNames, decideAuditStatus, decideLayerState, hasUsableResponse, prospectEvidence, unresolvedIdentities } from './decide.ts';
@@ -44,6 +45,12 @@ export interface EngineDeps {
   visualQaRequired?: boolean;
   /** Stores real disagreement/rejection cases for regression/evaluation work. */
   evaluation?: EvaluationStore;
+  /**
+   * Production commercial enrichment: when fewer than three verified competitors
+   * emerge naturally, run isolated competitor-discovery searches. Defaults false
+   * for backwards-compatible tests; the production server enables it.
+   */
+  competitorDiscoveryEnabled?: boolean;
   websiteEvidenceCollector?: (url: string) => Promise<WebsiteEvidence>;
   now?: () => Date;
   log?: (msg: string) => void;
@@ -66,7 +73,7 @@ export function newAuditRecord(request: AuditRequest, providerName: string, now 
     completedSteps: [],
     layers: { VISIBLE: emptyLayer('VISIBLE'), RECOMMENDED: emptyLayer('RECOMMENDED'), CONVERSATIONAL: emptyLayer('CONVERSATIONAL') },
     topCompetitors: [],
-    evidence: { visibleScreenshots: [], recommendedScreenshots: [], conversationalScreenshots: [], brandDiagnosticScreenshots: [] },
+    evidence: { visibleScreenshots: [], recommendedScreenshots: [], conversationalScreenshots: [], brandDiagnosticScreenshots: [], competitorDiscoveryScreenshots: [] },
     provider: providerName,
   };
 }
@@ -230,27 +237,52 @@ export class AuditEngine {
     // confirmed by the visual witness in the SAME turn. For Recommended and
     // Conversational layers it must be visually recommended/shortlisted, not merely
     // present in a map/source. This deliberately trades completeness for accuracy.
-    const competitorEvidence = visualRequired
-      ? all.filter((mention) => {
-          if (mention.kind !== 'competitor' || mention.layer === 'BRAND_DIAGNOSTIC') return false;
-          const layerResult = record.layers[mention.layer];
-          const turn = layerResult.turns.find((t) => t.index === mention.turnIndex);
-          const visual = turn?.visualReview;
-          if (!visual || visual.confidence < 0.9) return false;
-          const visualNames =
-            mention.layer === 'VISIBLE'
-              ? visual.businessesSurfaced
-              : visual.businessesRecommended;
-          return visualConfirmsBusinessName(
-            mention.name,
-            visualNames,
-            understanding.prospect.location,
-            understanding.prospect.serviceTerms ?? [],
-          );
-        })
+    let competitorEvidence: EntityMention[] = visualRequired
+      ? all
+          .filter((mention) => {
+            if (mention.kind !== 'competitor' || mention.layer === 'BRAND_DIAGNOSTIC' || mention.layer === 'COMPETITOR_DISCOVERY') return false;
+            const layerResult = record.layers[mention.layer];
+            const turn = layerResult.turns.find((t) => t.index === mention.turnIndex);
+            const visual = turn?.visualReview;
+            if (!visual || visual.confidence < 0.9) return false;
+            const visualNames =
+              mention.layer === 'VISIBLE'
+                ? visual.businessesSurfaced
+                : visual.businessesRecommended;
+            return visualConfirmsBusinessName(
+              mention.name,
+              visualNames,
+              understanding.prospect.location,
+              understanding.prospect.serviceTerms ?? [],
+            );
+          })
+          .map((mention) =>
+            mention.source === 'map'
+              ? { ...mention, localMarketEvidence: true }
+              : mention,
+          )
       : all;
 
     record.topCompetitors = rankCompetitors(competitorEvidence, understanding.prospect.location);
+
+    // Commercial enrichment is deliberately downstream of the three prospect
+    // verdicts. It can add VERIFIED competitors, never change a layer state.
+    if (
+      this.deps.competitorDiscoveryEnabled === true &&
+      visualRequired &&
+      !signInRequired &&
+      record.topCompetitors.length < 3
+    ) {
+      competitorEvidence = await this.runCompetitorDiscovery(
+        record,
+        understanding,
+        competitorEvidence,
+      );
+      record.topCompetitors = rankCompetitors(
+        competitorEvidence,
+        understanding.prospect.location,
+      );
+    }
 
     // Decoupled competitor evidence path: in production this is built only from
     // parser + visual agreement in the same turn. It does not depend on whether
@@ -303,6 +335,10 @@ export class AuditEngine {
           ? await this.layerScreenshotInputs(record)
           : [];
 
+        const competitorDiscoveryScreenshots = visualRequired
+          ? await this.competitorDiscoveryScreenshotInputs(record)
+          : [];
+
         const finalReview = await this.deps.semanticQa.finalReview({
           request: record.request,
           understanding,
@@ -312,6 +348,10 @@ export class AuditEngine {
             ? { reconciliations: record.quality.visual }
             : {}),
           layerScreenshots,
+          ...(record.competitorDiscovery
+            ? { competitorDiscovery: record.competitorDiscovery }
+            : {}),
+          competitorDiscoveryScreenshots,
           competitors: record.topCompetitors,
           candidateOutreach: candidateMessage ?? '',
         });
@@ -402,6 +442,118 @@ export class AuditEngine {
       result.finishedAt = this.now();
       await conversation?.close().catch(() => undefined);
     }
+  }
+
+  private async runCompetitorDiscovery(
+    record: AuditRecord,
+    understanding: BusinessUnderstanding,
+    initialEvidence: EntityMention[],
+  ): Promise<EntityMention[]> {
+    const specs = competitorDiscoveryPrompts(understanding);
+    const discovery: CompetitorDiscovery = {
+      prompts: specs.map((s) => ({ ...s })),
+      turns: [],
+      entities: [],
+      verifiedCompetitors: [],
+      localMarketCompetitors: [],
+    };
+    record.competitorDiscovery = discovery;
+
+    const combined = [...initialEvidence];
+    const verifiedDiscovery: EntityMention[] = [];
+
+    for (let index = 0; index < specs.length; index++) {
+      if (rankCompetitors(combined, understanding.prospect.location).length >= 3) break;
+      const spec = specs[index]!;
+      let conversation: ChatGptConversation | undefined;
+      try {
+        // Each competitor-discovery prompt gets its own clean Temporary Chat.
+        conversation = await this.deps.provider.newConversation();
+        const turn = await this.askAndRecord(
+          record,
+          conversation,
+          'COMPETITOR_DISCOVERY',
+          index,
+          spec.prompt,
+        );
+        discovery.turns.push(turn);
+
+        const mentions = toMentions(
+          extractCandidates(turn.response),
+          understanding.prospect,
+          'COMPETITOR_DISCOVERY',
+          index,
+        );
+        discovery.entities.push(...mentions);
+
+        const visual = turn.visualReview;
+        if (visual && visual.confidence >= 0.9) {
+          const verified = mentions
+            .filter(
+              (mention) =>
+                mention.kind === 'competitor' &&
+                visualConfirmsBusinessName(
+                  mention.name,
+                  visual.businessesRecommended,
+                  understanding.prospect.location,
+                  understanding.prospect.serviceTerms ?? [],
+                ),
+            )
+            .map((mention) => ({
+              ...mention,
+              localMarketEvidence:
+                spec.localMarket || mention.source === 'map',
+            }));
+
+          verifiedDiscovery.push(...verified);
+          combined.push(...verified);
+          const rankedDiscovery = rankCompetitors(
+            verifiedDiscovery,
+            understanding.prospect.location,
+            50,
+          );
+          discovery.verifiedCompetitors = rankedDiscovery.map((c) => c.name);
+          discovery.localMarketCompetitors = rankedDiscovery
+            .filter((c) => c.localMarketEvidence === true)
+            .map((c) => c.name);
+        }
+
+        await this.deps.store.save(record);
+      } catch (err) {
+        const message = (err as Error).message || String(err);
+        discovery.error = discovery.error
+          ? `${discovery.error}; search ${index + 1}: ${message}`
+          : `search ${index + 1}: ${message}`;
+        this.deps.log?.(
+          `[${record.id}] competitor discovery search ${index + 1} failed: ${message}`,
+        );
+        await this.deps.store.save(record);
+        if (err instanceof SignInRequiredError) break;
+      } finally {
+        await conversation?.close().catch(() => undefined);
+      }
+    }
+
+    return combined;
+  }
+
+  private async competitorDiscoveryScreenshotInputs(
+    record: AuditRecord,
+  ): Promise<{ index: number; prompt: string; screenshotDataUrl: string }[]> {
+    const inputs: { index: number; prompt: string; screenshotDataUrl: string }[] = [];
+    for (const turn of record.competitorDiscovery?.turns ?? []) {
+      const screenshotPath = turn.visualScreenshotPath ?? turn.screenshotPath;
+      if (!screenshotPath) continue;
+      inputs.push({
+        index: turn.index,
+        prompt: turn.prompt,
+        screenshotDataUrl: await this.deps.evidence.dataUrlForPublicPath(
+          record.id,
+          screenshotPath,
+        ),
+      });
+    }
+    return inputs;
   }
 
   private async reconcileVisualEvidence(
@@ -506,7 +658,7 @@ export class AuditEngine {
   private async askAndRecord(
     record: AuditRecord,
     conversation: ChatGptConversation,
-    layer: Layer | 'BRAND_DIAGNOSTIC',
+    layer: Layer | 'BRAND_DIAGNOSTIC' | 'COMPETITOR_DISCOVERY',
     index: number,
     prompt: string,
   ): Promise<ConversationTurn> {
@@ -522,15 +674,19 @@ export class AuditEngine {
     const shot = await this.deps.evidence.capture(conversation, record.id, `${layer.toLowerCase()}-${index + 1}`);
     if (shot.publicPath) {
       turn.screenshotPath = shot.publicPath;
-      const bucket =
-        layer === 'VISIBLE'
-          ? record.evidence.visibleScreenshots
-          : layer === 'RECOMMENDED'
-            ? record.evidence.recommendedScreenshots
-            : layer === 'CONVERSATIONAL'
-              ? record.evidence.conversationalScreenshots
-              : record.evidence.brandDiagnosticScreenshots;
-      bucket.push(shot.publicPath);
+      if (layer === 'COMPETITOR_DISCOVERY') {
+        (record.evidence.competitorDiscoveryScreenshots ??= []).push(shot.publicPath);
+      } else {
+        const bucket =
+          layer === 'VISIBLE'
+            ? record.evidence.visibleScreenshots
+            : layer === 'RECOMMENDED'
+              ? record.evidence.recommendedScreenshots
+              : layer === 'CONVERSATIONAL'
+                ? record.evidence.conversationalScreenshots
+                : record.evidence.brandDiagnosticScreenshots;
+        bucket.push(shot.publicPath);
+      }
     } else if (shot.error) {
       this.deps.log?.(`[${record.id}] ${layer} turn ${index + 1}: ${shot.error}`);
       turn.screenshotError = shot.error;
@@ -688,6 +844,14 @@ export function summarise(record: AuditRecord, publicBaseUrl?: string) {
     ),
     outreachMessage: record.outreachMessage,
     competitorOutreachMessage: record.competitorOutreachMessage,
+    competitorDiscovery: record.competitorDiscovery
+      ? {
+          attempts: record.competitorDiscovery.turns.length,
+          verifiedCompetitors: record.competitorDiscovery.verifiedCompetitors,
+          localMarketCompetitors: record.competitorDiscovery.localMarketCompetitors,
+          error: record.competitorDiscovery.error,
+        }
+      : undefined,
     evidence: record.evidence,
     incompleteReason: record.incompleteReason,
   };
