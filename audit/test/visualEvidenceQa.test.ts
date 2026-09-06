@@ -69,6 +69,109 @@ test('reconciliation agrees only on high-confidence matching YES/NO', () => {
   assert.equal(reconcileLayerVisualEvidence(layer, 'Warrington').agreed, false);
 });
 
+test('business-list coverage gaps are recorded but are not hard contradictions', () => {
+  const layer: LayerResult = {
+    layer: 'VISIBLE',
+    state: 'YES',
+    turns: [
+      {
+        index: 0,
+        prompt: 'AI SEO agencies in Warrington',
+        response: textResponse('AI Listings, Direct First'),
+        screenshotPath: '/evidence/a/x.png',
+        visualReview: {
+          ...review('YES', 0.99),
+          businessesSurfaced: ['AI Listings | AI SEO Agency', 'innovAIte'],
+        },
+        askedAt: new Date().toISOString(),
+        answeredAt: new Date().toISOString(),
+      },
+    ],
+    entities: [],
+    prospectPresent: 'YES',
+    businessesSurfaced: ['AI Listings', 'Direct First'],
+    competitorsMentioned: ['Direct First'],
+  };
+
+  const result = reconcileLayerVisualEvidence(
+    layer,
+    'Warrington',
+    ['ai', 'seo', 'agency', 'search', 'visibility'],
+  );
+  assert.equal(result.prospectAgreed, true);
+  assert.equal(result.agreed, true);
+  assert.deepEqual(result.parserOnlyBusinesses, ['Direct First']);
+  assert.deepEqual(result.visionOnlyBusinesses, ['innovAIte']);
+});
+
+test('a provider may also appear as a citation source without becoming a false conflict', () => {
+  const layer: LayerResult = {
+    layer: 'VISIBLE',
+    state: 'YES',
+    turns: [
+      {
+        index: 0,
+        prompt: 'AI SEO agencies in Warrington',
+        response: textResponse('AI Listings and Gregg King'),
+        screenshotPath: '/evidence/a/x.png',
+        visualReview: {
+          ...review('YES', 0.99),
+          businessesSurfaced: ['AI Listings | AI SEO Agency', 'Gregg King'],
+          citationsOrSources: ['Gregg King'],
+        },
+        askedAt: new Date().toISOString(),
+        answeredAt: new Date().toISOString(),
+      },
+    ],
+    entities: [],
+    prospectPresent: 'YES',
+    businessesSurfaced: ['AI Listings', 'Gregg King'],
+    competitorsMentioned: ['Gregg King'],
+  };
+
+  const result = reconcileLayerVisualEvidence(
+    layer,
+    'Warrington',
+    ['ai', 'seo', 'agency', 'search', 'visibility'],
+  );
+  assert.equal(result.agreed, true);
+  assert.deepEqual(result.sourceConflicts, []);
+});
+
+test('semantic service terms prevent SEO Warrington being merged with AI Listings', () => {
+  const layer: LayerResult = {
+    layer: 'RECOMMENDED',
+    state: 'YES',
+    turns: [
+      {
+        index: 0,
+        prompt: 'Who would you recommend?',
+        response: textResponse('AI Listings and SEO Warrington'),
+        screenshotPath: '/evidence/a/x.png',
+        visualReview: {
+          ...review('YES', 0.99),
+          businessesSurfaced: ['AI Listings | AI SEO Agency'],
+          businessesRecommended: ['AI Listings | AI SEO Agency'],
+        },
+        askedAt: new Date().toISOString(),
+        answeredAt: new Date().toISOString(),
+      },
+    ],
+    entities: [],
+    prospectPresent: 'YES',
+    businessesSurfaced: ['AI Listings', 'SEO Warrington'],
+    competitorsMentioned: ['SEO Warrington'],
+  };
+
+  const result = reconcileLayerVisualEvidence(
+    layer,
+    'Warrington',
+    ['ai', 'seo', 'agency', 'search', 'visibility'],
+  );
+  assert.ok(result.parserOnlyBusinesses.includes('SEO Warrington'));
+  assert.equal(result.agreed, true);
+});
+
 test('a parser competitor that vision identifies as a citation/source is disputed', () => {
   const layer: LayerResult = {
     layer: 'RECOMMENDED',

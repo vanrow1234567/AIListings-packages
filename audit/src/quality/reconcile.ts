@@ -1,4 +1,4 @@
-import { sameBusiness } from '../analysis/normalise.ts';
+import { distinctiveTokens, nameKey } from '../analysis/normalise.ts';
 import type {
   LayerEvidenceReconciliation,
   LayerResult,
@@ -13,49 +13,71 @@ function deterministicState(layer: LayerResult): 'YES' | 'NO' | 'UNRESOLVED' {
   return 'UNRESOLVED';
 }
 
-function uniqueNames(names: string[], location: string): string[] {
+function sameEvidenceBusiness(
+  a: string,
+  b: string,
+  location: string,
+  serviceTerms: readonly string[],
+): boolean {
+  const ka = nameKey(a, location);
+  const kb = nameKey(b, location);
+  if (!ka || !kb) return false;
+  if (ka === kb) return true;
+
+  const ta = new Set(ka.split(' '));
+  const tb = new Set(kb.split(' '));
+  const [small, large, smallName] = ta.size <= tb.size ? [ta, tb, a] : [tb, ta, b];
+  if (![...small].every((t) => large.has(t))) return false;
+
+  // In reconciliation, semantic service terms are descriptive rather than identity.
+  // This prevents generic names such as "SEO Warrington" being merged with
+  // "AI Listings | AI SEO Agency" merely because both contain "SEO".
+  return distinctiveTokens(smallName, location, serviceTerms).length > 0;
+}
+
+function uniqueNames(
+  names: string[],
+  location: string,
+  serviceTerms: readonly string[],
+): string[] {
   const out: string[] = [];
   for (const name of names.map((n) => n.trim()).filter(Boolean)) {
-    if (!out.some((existing) => sameBusiness(existing, name, location))) out.push(name);
+    if (!out.some((existing) => sameEvidenceBusiness(existing, name, location, serviceTerms))) {
+      out.push(name);
+    }
   }
   return out;
 }
 
-function hasBusiness(name: string, list: string[], location: string): boolean {
-  return list.some((candidate) => sameBusiness(name, candidate, location));
-}
-
-function visualBusinessesForLayer(
-  layer: LayerResult,
-  reviews: SemanticVisualReview[],
+function hasBusiness(
+  name: string,
+  list: string[],
   location: string,
-): string[] {
-  const names =
-    layer.layer === 'VISIBLE'
-      ? reviews.flatMap((r) => r.businessesSurfaced)
-      : reviews.flatMap((r) => r.businessesRecommended);
-  return uniqueNames(names, location);
+  serviceTerms: readonly string[],
+): boolean {
+  return list.some((candidate) => sameEvidenceBusiness(name, candidate, location, serviceTerms));
 }
 
 /**
  * Independent witness reconciliation.
  *
- * Accuracy-first release rule:
- * - every captured turn must have a visual review;
- * - every visual review must be >= 0.90 confidence;
- * - target-prospect YES/NO must agree;
- * - the provider/business set must agree in both directions;
- * - anything the parser calls a competitor but vision calls a citation/source is a dispute;
- * - UNRESOLVED never counts as agreement.
+ * Hard release disputes:
+ * - missing visual witness or confidence below 0.90;
+ * - target-prospect YES/NO disagreement;
+ * - parser says "competitor/provider" while vision explicitly classifies the same
+ *   named entity only as a source/citation.
  *
- * This deliberately prefers false INCOMPLETEs over sending a materially incorrect audit.
+ * Coverage gaps (one witness names an additional business) are retained for the
+ * final Sol multimodal gate rather than treated as contradictions. A screenshot
+ * witness is not assumed to be an exhaustive OCR/parser replacement.
  */
 export function reconcileLayerVisualEvidence(
   layer: LayerResult,
   location: string,
+  serviceTerms: readonly string[] = [],
 ): LayerEvidenceReconciliation {
   const deterministicProspectPresent = deterministicState(layer);
-  const deterministicBusinesses = uniqueNames(layer.businessesSurfaced, location);
+  const deterministicBusinesses = uniqueNames(layer.businessesSurfaced, location, serviceTerms);
 
   if (layer.turns.length === 0) {
     return {
@@ -113,20 +135,34 @@ export function reconcileLayerVisualEvidence(
     visualProspectPresent = 'UNRESOLVED';
   }
 
-  const visualBusinesses = visualBusinessesForLayer(layer, reviews, location);
+  // Compare surfaced-provider coverage to surfaced-provider coverage. Recommendation
+  // semantics remain the visual witness + final Sol gate's job; the DOM parser does
+  // not independently encode "recommended" vs "merely mentioned" for every entity.
+  const visualBusinesses = uniqueNames(
+    reviews.flatMap((r) => r.businessesSurfaced),
+    location,
+    serviceTerms,
+  );
   const visualSources = uniqueNames(
     reviews.flatMap((r) => r.citationsOrSources),
     location,
+    serviceTerms,
   );
 
   const parserOnlyBusinesses = deterministicBusinesses.filter(
-    (name) => !hasBusiness(name, visualBusinesses, location),
+    (name) => !hasBusiness(name, visualBusinesses, location, serviceTerms),
   );
   const visionOnlyBusinesses = visualBusinesses.filter(
-    (name) => !hasBusiness(name, deterministicBusinesses, location),
+    (name) => !hasBusiness(name, deterministicBusinesses, location, serviceTerms),
   );
+
+  // A provider may also have its own citation/source pill. That is not a conflict.
+  // It is a conflict only when vision classifies the parser competitor as a source
+  // and does NOT independently list it as a surfaced business/provider.
   const sourceConflicts = layer.competitorsMentioned.filter(
-    (name) => hasBusiness(name, visualSources, location),
+    (name) =>
+      hasBusiness(name, visualSources, location, serviceTerms) &&
+      !hasBusiness(name, visualBusinesses, location, serviceTerms),
   );
 
   const prospectAgreed =
@@ -134,12 +170,7 @@ export function reconcileLayerVisualEvidence(
     visualProspectPresent !== 'UNRESOLVED' &&
     deterministicProspectPresent === visualProspectPresent;
 
-  const businessesAgreed =
-    allHighConfidence &&
-    parserOnlyBusinesses.length === 0 &&
-    visionOnlyBusinesses.length === 0 &&
-    sourceConflicts.length === 0;
-
+  const businessesAgreed = allHighConfidence && sourceConflicts.length === 0;
   const agreed = prospectAgreed && businessesAgreed;
 
   const parts = [
@@ -148,13 +179,13 @@ export function reconcileLayerVisualEvidence(
     `vision confidence floor=${confidence.toFixed(2)}`,
   ];
   if (parserOnlyBusinesses.length > 0) {
-    parts.push(`parser-only businesses: ${parserOnlyBusinesses.join(', ')}`);
+    parts.push(`parser-only coverage: ${parserOnlyBusinesses.join(', ')}`);
   }
   if (visionOnlyBusinesses.length > 0) {
-    parts.push(`vision-only businesses: ${visionOnlyBusinesses.join(', ')}`);
+    parts.push(`vision-only coverage: ${visionOnlyBusinesses.join(', ')}`);
   }
   if (sourceConflicts.length > 0) {
-    parts.push(`parser competitors classified visually as sources: ${sourceConflicts.join(', ')}`);
+    parts.push(`provider/source contradictions: ${sourceConflicts.join(', ')}`);
   }
 
   return {
@@ -172,7 +203,7 @@ export function reconcileLayerVisualEvidence(
     agreed,
     confidence,
     reason: agreed
-      ? `Independent DOM/parser and visual witnesses agree. ${parts.join('; ')}.`
+      ? `Independent witnesses agree on material release facts. Coverage gaps, if any, require final multimodal review. ${parts.join('; ')}.`
       : `Independent evidence dispute. ${parts.join('; ')}.`,
   };
 }

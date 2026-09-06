@@ -72,6 +72,11 @@ export class MockChatGptProvider implements ChatGptProvider {
         await writeFile(path, 'mock-screenshot');
         self.screenshots.push(path);
       },
+      async screenshotResponse(path) {
+        if (script.screenshotError) throw script.screenshotError;
+        await writeFile(path, 'mock-response-screenshot');
+        self.screenshots.push(path);
+      },
       async close() {},
     };
   }

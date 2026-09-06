@@ -135,6 +135,8 @@ export interface ConversationTurn {
   response: ChatGptResponse;
   screenshotPath?: string;
   screenshotError?: string;
+  /** Internal evidence crop of the latest assistant response used by the visual witness. */
+  visualScreenshotPath?: string;
   /** Independent multimodal reading of what a human sees in the ChatGPT screenshot. */
   visualReview?: SemanticVisualReview;
   /** A missing / failed visual witness is non-conclusive when visual QA is required. */

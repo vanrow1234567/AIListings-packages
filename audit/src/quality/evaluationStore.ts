@@ -45,6 +45,43 @@ export class EvaluationStore {
         responseHtml: t.response.html,
         links: t.response.links,
         screenshotPath: t.screenshotPath ?? null,
+        visualScreenshotPath: t.visualScreenshotPath ?? null,
+        visualReview: t.visualReview ?? null,
+        visualReviewError: t.visualReviewError ?? null,
+      })),
+    });
+  }
+
+  async saveLayerCoverageGap(
+    record: AuditRecord,
+    reconciliation: LayerEvidenceReconciliation,
+  ): Promise<string> {
+    const layer = record.layers[reconciliation.layer];
+    return this.write(record.id, `layer-${reconciliation.layer.toLowerCase()}-coverage-gap`, {
+      kind: 'LAYER_EVIDENCE_COVERAGE_GAP',
+      createdAt: new Date().toISOString(),
+      buildRef: process.env.AUDIT_BUILD_REF ?? null,
+      auditId: record.id,
+      leadId: record.request.lead_id ?? null,
+      business: record.request.business_name,
+      website: record.request.website,
+      location: record.request.location,
+      layer: reconciliation.layer,
+      parser: {
+        state: layer.state,
+        prospectPresent: reconciliation.deterministicProspectPresent,
+        businessesSurfaced: layer.businessesSurfaced,
+        competitorsMentioned: layer.competitorsMentioned,
+      },
+      reconciliation,
+      turns: layer.turns.map((t) => ({
+        index: t.index,
+        prompt: t.prompt,
+        responseText: t.response.text,
+        responseHtml: t.response.html,
+        links: t.response.links,
+        screenshotPath: t.screenshotPath ?? null,
+        visualScreenshotPath: t.visualScreenshotPath ?? null,
         visualReview: t.visualReview ?? null,
         visualReviewError: t.visualReviewError ?? null,
       })),

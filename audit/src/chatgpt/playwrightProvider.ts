@@ -333,6 +333,12 @@ class PlaywrightConversation implements ChatGptConversation {
     await this.page.screenshot({ path, fullPage: true, timeout: 30_000 });
   }
 
+  async screenshotResponse(path: string): Promise<void> {
+    const last = this.page.locator(SELECTORS.assistant).last();
+    await last.scrollIntoViewIfNeeded();
+    await last.screenshot({ path, timeout: 30_000 });
+  }
+
   async close(): Promise<void> {
     await this.page.close().catch(() => undefined);
   }

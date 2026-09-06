@@ -61,4 +61,34 @@ export class EvidenceStore {
       return { error: `Screenshot failed: ${(err as Error).message}` };
     }
   }
+
+  /**
+   * Capture the latest assistant response at readable resolution for multimodal QA.
+   * The public report still uses the full-page screenshot above. If the provider
+   * cannot crop the response, fall back to the full page rather than lose the witness.
+   */
+  async captureResponse(
+    conversation: ChatGptConversation,
+    auditId: string,
+    label: string,
+  ): Promise<{ path?: string; publicPath?: string; error?: string }> {
+    const dir = this.dir(auditId);
+    await mkdir(dir, { recursive: true });
+    const file = `${label}-${Date.now()}.png`;
+    const full = path.join(dir, file);
+    try {
+      if (conversation.screenshotResponse) {
+        try {
+          await conversation.screenshotResponse(full);
+        } catch {
+          await conversation.screenshot(full);
+        }
+      } else {
+        await conversation.screenshot(full);
+      }
+      return { path: full, publicPath: this.publicPath(auditId, file) };
+    } catch (err) {
+      return { error: `Visual screenshot failed: ${(err as Error).message}` };
+    }
+  }
 }

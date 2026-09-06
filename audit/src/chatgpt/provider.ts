@@ -12,6 +12,8 @@ export interface ChatGptConversation {
   ask(prompt: string): Promise<ChatGptResponse>;
   /** Save a full-page screenshot of the current state to `path`. */
   screenshot(path: string): Promise<void>;
+  /** Save only the latest assistant response at readable resolution when supported. */
+  screenshotResponse?(path: string): Promise<void>;
   /** Close this conversation (tab). */
   close(): Promise<void>;
 }

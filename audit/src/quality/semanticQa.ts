@@ -342,6 +342,10 @@ export class OpenAiSemanticQaProvider implements SemanticQaProvider {
       'Do not infer from outside knowledge and do not assume the DOM/parser conclusion.',
       'The screenshot is primary evidence. If it is unreadable, cut off, ambiguous, or does not clearly prove the answer, use UNRESOLVED.',
       'Distinguish actual businesses/providers from webpage citation pills, publications, informational sources, directories, and UI chrome.',
+      'businessesSurfaced must contain actual provider/business names visibly surfaced in this response.',
+      'businessesRecommended must contain only providers the wording actually recommends/shortlists/suggests in this response.',
+      'citationsOrSources must contain only exact visible source/publisher/directory names, one entity per item. Never put descriptions such as "visible source pill", "map card", or UI labels in citationsOrSources; put those descriptions in evidence.',
+      'A business can also have a citation/source pill. If it is visibly a provider, keep it in businessesSurfaced even when a source with the same name is also visible.',
       layerRule,
       'Return concise evidence describing visible labels/wording/placement. Never invent hidden links or text.',
     ].join(' ');
@@ -378,6 +382,8 @@ export class OpenAiSemanticQaProvider implements SemanticQaProvider {
       'Reject if layer states, named competitors, or proposed claims conflict with the supplied responses.',
       'Where ChatGPT screenshots are supplied, inspect them directly and cross-check them against the DOM/parser result and independent visual witness.',
       'Treat webpage citation pills/publications as sources, not recommended businesses, unless the screenshot clearly presents them as providers.',
+      'Parser-only and vision-only business names are coverage gaps, not automatic contradictions. Resolve whether any gap makes the named top competitors, layer claim, or candidate outreach materially inaccurate; reject if it does or if you cannot verify the material claim.',
+      'Never override a target-prospect YES/NO disagreement or an explicit provider-vs-source contradiction.',
       'This is a credibility gate: uncertainty must fail closed.',
       'approved=true only when you are at least 90% confident the report is safe and relevant to send to this prospect.',
     ].join(' ');

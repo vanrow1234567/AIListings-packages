@@ -361,6 +361,7 @@ export class AuditEngine {
     const reconciliation = reconcileLayerVisualEvidence(
       result,
       understanding.prospect.location,
+      understanding.prospect.serviceTerms ?? [],
     );
     record.quality = {
       ...(record.quality ?? { required: this.deps.semanticQaRequired === true }),
@@ -370,6 +371,16 @@ export class AuditEngine {
         [result.layer]: reconciliation,
       },
     };
+
+    const hasCoverageGap =
+      reconciliation.parserOnlyBusinesses.length > 0 ||
+      reconciliation.visionOnlyBusinesses.length > 0;
+
+    if (reconciliation.agreed && hasCoverageGap && this.deps.evaluation) {
+      await this.deps.evaluation.saveLayerCoverageGap(record, reconciliation).catch((err) => {
+        this.deps.log?.(`[${record.id}] failed to save visual coverage gap: ${(err as Error).message}`);
+      });
+    }
 
     if (reconciliation.agreed) return;
 
@@ -390,13 +401,14 @@ export class AuditEngine {
     const inputs: { layer: Layer; screenshotDataUrl: string }[] = [];
     for (const layer of LAYERS) {
       const turns = record.layers[layer].turns;
-      const latest = [...turns].reverse().find((t) => t.screenshotPath);
-      if (!latest?.screenshotPath) {
+      const latest = [...turns].reverse().find((t) => t.visualScreenshotPath || t.screenshotPath);
+      const screenshotPath = latest?.visualScreenshotPath ?? latest?.screenshotPath;
+      if (!screenshotPath) {
         throw new Error(`${layer} has no screenshot for final multimodal review.`);
       }
       inputs.push({
         layer,
-        screenshotDataUrl: await this.deps.evidence.dataUrlForPublicPath(record.id, latest.screenshotPath),
+        screenshotDataUrl: await this.deps.evidence.dataUrlForPublicPath(record.id, screenshotPath),
       });
     }
     return inputs;
@@ -464,26 +476,34 @@ export class AuditEngine {
     }
 
     if (this.deps.visualQaRequired === true && layer !== 'BRAND_DIAGNOSTIC') {
-      if (!shot.path) {
-        turn.visualReviewError = shot.error ?? 'Screenshot capture was unavailable.';
-      } else if (!this.deps.semanticQa?.visualReview) {
+      if (!this.deps.semanticQa?.visualReview) {
         turn.visualReviewError = 'Visual QA provider is unavailable.';
       } else if (!record.understanding) {
         turn.visualReviewError = 'Business understanding is unavailable for visual QA.';
       } else {
-        try {
-          const screenshotDataUrl = await this.deps.evidence.dataUrlFromFile(shot.path);
-          turn.visualReview = await this.deps.semanticQa.visualReview({
-            request: record.request,
-            understanding: record.understanding,
-            layer,
-            turnIndex: index,
-            prompt,
-            screenshotDataUrl,
-          });
-        } catch (err) {
-          turn.visualReviewError = `Visual QA failed: ${(err as Error).message}`;
-          this.deps.log?.(`[${record.id}] ${layer} turn ${index + 1}: ${turn.visualReviewError}`);
+        const visualShot = await this.deps.evidence.captureResponse(
+          conversation,
+          record.id,
+          `${layer.toLowerCase()}-${index + 1}-visual`,
+        );
+        if (!visualShot.path) {
+          turn.visualReviewError = visualShot.error ?? 'Visual screenshot capture was unavailable.';
+        } else {
+          if (visualShot.publicPath) turn.visualScreenshotPath = visualShot.publicPath;
+          try {
+            const screenshotDataUrl = await this.deps.evidence.dataUrlFromFile(visualShot.path);
+            turn.visualReview = await this.deps.semanticQa.visualReview({
+              request: record.request,
+              understanding: record.understanding,
+              layer,
+              turnIndex: index,
+              prompt,
+              screenshotDataUrl,
+            });
+          } catch (err) {
+            turn.visualReviewError = `Visual QA failed: ${(err as Error).message}`;
+            this.deps.log?.(`[${record.id}] ${layer} turn ${index + 1}: ${turn.visualReviewError}`);
+          }
         }
       }
     }
